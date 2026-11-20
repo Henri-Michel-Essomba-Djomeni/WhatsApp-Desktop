@@ -1,4 +1,5 @@
 <Solution>
   <Project Path="WhatsApp.App/WhatsApp.App.csproj" />
   <Project Path="WhatsApp.Core/WhatsApp.Core.csproj" />
+  <Project Path="WhatsApp.Test/WhatsApp.Test.csproj" />
 </Solution>

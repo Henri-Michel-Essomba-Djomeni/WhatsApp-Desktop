@@ -4,9 +4,11 @@ using WhatsApp.Core.Models;
 namespace WhatsApp.Core.Storage;
 
 // Une base par numéro : deux instances sur le même PC ne se mélangent pas.
+// Toutes les méthodes publiques passent par _gate : le réseau l'appelle depuis plusieurs threads.
 public sealed class Database : IDisposable
 {
     private readonly SqliteConnection _c;
+    private readonly object _gate = new();
     public string Folder { get; }
     public string MediaFolder { get; }
 
@@ -30,7 +32,11 @@ public sealed class Database : IDisposable
             CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);");
     }
 
-    private void Exec(string sql, params (string, object?)[] p) { using var c = Cmd(sql, p); c.ExecuteNonQuery(); }
+    // ---- Outils internes ----
+    private void Exec(string sql, params (string, object?)[] p)
+    {
+        lock (_gate) { using var c = Cmd(sql, p); c.ExecuteNonQuery(); }
+    }
 
     private SqliteCommand Cmd(string sql, params (string Name, object? Value)[] p)
     {
@@ -48,9 +54,12 @@ public sealed class Database : IDisposable
 
     public Contact? GetContact(string phone)
     {
-        using var c = Cmd("SELECT phone,name,about,avatar_path FROM contacts WHERE phone=$p", ("$p", phone));
-        using var r = c.ExecuteReader();
-        return r.Read() ? ReadContact(r, 0) : null;
+        lock (_gate)
+        {
+            using var c = Cmd("SELECT phone,name,about,avatar_path FROM contacts WHERE phone=$p", ("$p", phone));
+            using var r = c.ExecuteReader();
+            return r.Read() ? ReadContact(r, 0) : null;
+        }
     }
 
     private static Contact ReadContact(SqliteDataReader r, int o) => new()
@@ -70,12 +79,24 @@ public sealed class Database : IDisposable
 
     public List<ChatMessage> GetMessages(string chatPhone)
     {
-        var list = new List<ChatMessage>();
-        using var c = Cmd(@"SELECT id,chat_phone,sender_phone,type,text,media_path,sent_at,status,reply_to,deleted
-                            FROM messages WHERE chat_phone=$p ORDER BY sent_at", ("$p", chatPhone));
-        using var r = c.ExecuteReader();
-        while (r.Read()) list.Add(ReadMessage(r));
-        return list;
+        lock (_gate)
+        {
+            var list = new List<ChatMessage>();
+            using var c = Cmd(@"SELECT id,chat_phone,sender_phone,type,text,media_path,sent_at,status,reply_to,deleted
+                                FROM messages WHERE chat_phone=$p ORDER BY sent_at", ("$p", chatPhone));
+            using var r = c.ExecuteReader();
+            while (r.Read()) list.Add(ReadMessage(r));
+            return list;
+        }
+    }
+
+    public bool MessageExists(string id)
+    {
+        lock (_gate)
+        {
+            using var c = Cmd("SELECT 1 FROM messages WHERE id=$id", ("$id", id));
+            return c.ExecuteScalar() != null;
+        }
     }
 
     private static ChatMessage ReadMessage(SqliteDataReader r) => new()
@@ -101,48 +122,54 @@ public sealed class Database : IDisposable
     // ---- Liste des discussions (dernier message + non lus) ----
     public List<ChatSummary> GetChats()
     {
-        var list = new List<ChatSummary>();
-        using var c = Cmd(@"
-            SELECT c.phone,c.name,c.about,c.avatar_path,
-                   m.id,m.chat_phone,m.sender_phone,m.type,m.text,m.media_path,m.sent_at,m.status,m.reply_to,m.deleted,
-                   (SELECT COUNT(*) FROM messages u WHERE u.chat_phone=c.phone
-                       AND u.sender_phone=c.phone AND u.status<3 AND u.deleted=0)
-            FROM contacts c
-            LEFT JOIN messages m ON m.id=(SELECT id FROM messages WHERE chat_phone=c.phone
-                                          ORDER BY sent_at DESC LIMIT 1)
-            ORDER BY COALESCE(m.sent_at,0) DESC");
-        using var r = c.ExecuteReader();
-        while (r.Read())
+        lock (_gate)
         {
-            var contact = ReadContact(r, 0);
-            ChatMessage? last = null;
-            if (!r.IsDBNull(4))
+            var list = new List<ChatSummary>();
+            using var c = Cmd(@"
+                SELECT c.phone,c.name,c.about,c.avatar_path,
+                       m.id,m.chat_phone,m.sender_phone,m.type,m.text,m.media_path,m.sent_at,m.status,m.reply_to,m.deleted,
+                       (SELECT COUNT(*) FROM messages u WHERE u.chat_phone=c.phone
+                           AND u.sender_phone=c.phone AND u.status<3 AND u.deleted=0)
+                FROM contacts c
+                LEFT JOIN messages m ON m.id=(SELECT id FROM messages WHERE chat_phone=c.phone
+                                              ORDER BY sent_at DESC LIMIT 1)
+                ORDER BY COALESCE(m.sent_at,0) DESC");
+            using var r = c.ExecuteReader();
+            while (r.Read())
             {
-                last = new ChatMessage
+                var contact = ReadContact(r, 0);
+                ChatMessage? last = null;
+                if (!r.IsDBNull(4))
                 {
-                    Id = r.GetString(4), ChatPhone = r.GetString(5), SenderPhone = r.GetString(6),
-                    Type = (MessageType)r.GetInt32(7), Text = r.IsDBNull(8) ? "" : r.GetString(8),
-                    MediaPath = r.IsDBNull(9) ? null : r.GetString(9),
-                    SentAt = DateTimeOffset.FromUnixTimeMilliseconds(r.GetInt64(10)).LocalDateTime,
-                    Status = (MessageStatus)r.GetInt32(11),
-                    ReplyToId = r.IsDBNull(12) ? null : r.GetString(12), IsDeleted = r.GetInt32(13) == 1
-                };
+                    last = new ChatMessage
+                    {
+                        Id = r.GetString(4), ChatPhone = r.GetString(5), SenderPhone = r.GetString(6),
+                        Type = (MessageType)r.GetInt32(7), Text = r.IsDBNull(8) ? "" : r.GetString(8),
+                        MediaPath = r.IsDBNull(9) ? null : r.GetString(9),
+                        SentAt = DateTimeOffset.FromUnixTimeMilliseconds(r.GetInt64(10)).LocalDateTime,
+                        Status = (MessageStatus)r.GetInt32(11),
+                        ReplyToId = r.IsDBNull(12) ? null : r.GetString(12), IsDeleted = r.GetInt32(13) == 1
+                    };
+                }
+                list.Add(new ChatSummary(contact, last, r.GetInt32(14)));
             }
-            list.Add(new ChatSummary(contact, last, r.GetInt32(14)));
+            return list;
         }
-        return list;
     }
 
     // ---- Paramètres (thème, mon profil, etc.) ----
     public string? GetSetting(string key)
     {
-        using var c = Cmd("SELECT value FROM settings WHERE key=$k", ("$k", key));
-        return c.ExecuteScalar() as string;
+        lock (_gate)
+        {
+            using var c = Cmd("SELECT value FROM settings WHERE key=$k", ("$k", key));
+            return c.ExecuteScalar() as string;
+        }
     }
 
     public void SetSetting(string key, string value) => Exec(
         "INSERT INTO settings(key,value) VALUES($k,$v) ON CONFLICT(key) DO UPDATE SET value=$v",
         ("$k", key), ("$v", value));
 
-    public void Dispose() => _c.Dispose();
+    public void Dispose() { lock (_gate) _c.Dispose(); }
 }
