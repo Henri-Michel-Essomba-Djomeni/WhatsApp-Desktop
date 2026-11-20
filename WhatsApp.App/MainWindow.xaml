@@ -30,7 +30,7 @@
         </Style>
 
         <!-- Bulle de message avec "queue" sur le premier message d'une série -->
-        <DataTemplate DataType="{x:Type local:MessageVM}">
+                <DataTemplate DataType="{x:Type local:MessageVM}">
             <Grid x:Name="Row" Margin="48,1,48,1" HorizontalAlignment="Left" MaxWidth="580">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="8"/>
@@ -40,9 +40,24 @@
                 <Path x:Name="TailL" Data="M8,0 L0,0 L8,9 Z" Fill="{DynamicResource BgIn}"
                       VerticalAlignment="Top" Visibility="Collapsed"/>
                 <Border x:Name="Bubble" Grid.Column="1" Background="{DynamicResource BgIn}"
-                        CornerRadius="8" Padding="10,6,8,5">
+                        CornerRadius="8" Padding="10,6,8,5" MouseLeftButtonDown="Bubble_MouseDown">
+                    <Border.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Répondre" Click="Reply_Click"/>
+                            <MenuItem Header="Copier" Click="Copy_Click"/>
+                            <MenuItem Header="Supprimer" Click="Delete_Click"/>
+                        </ContextMenu>
+                    </Border.ContextMenu>
                     <StackPanel>
-                        <TextBlock Text="{Binding Text}" TextWrapping="Wrap" FontSize="14.5"
+                        <Border x:Name="Quote" Visibility="Collapsed" Background="#26000000"
+                                BorderBrush="#53BDEB" BorderThickness="3,0,0,0" CornerRadius="4"
+                                Padding="8,4" Margin="0,0,0,5">
+                            <TextBlock Text="{Binding ReplyText}" FontSize="13" MaxHeight="40"
+                                       TextTrimming="CharacterEllipsis" TextWrapping="Wrap" Foreground="#B5BDC0"/>
+                        </Border>
+                        <Image Source="{Binding Picture}" MaxWidth="320" MaxHeight="320" Stretch="Uniform"
+                               HorizontalAlignment="Left"/>
+                        <TextBlock x:Name="Txt" Text="{Binding Text}" TextWrapping="Wrap" FontSize="14.5"
                                    Foreground="{DynamicResource TextMain}"/>
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,2,0,0">
                             <TextBlock Text="{Binding Time}" FontSize="11" Foreground="#9AA3A6"/>
@@ -55,6 +70,12 @@
                       VerticalAlignment="Top" Visibility="Collapsed"/>
             </Grid>
             <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding Text}" Value="">
+                    <Setter TargetName="Txt" Property="Visibility" Value="Collapsed"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding HasReply}" Value="True">
+                    <Setter TargetName="Quote" Property="Visibility" Value="Visible"/>
+                </DataTrigger>
                 <DataTrigger Binding="{Binding IsFirst}" Value="True">
                     <Setter TargetName="Row" Property="Margin" Value="48,8,48,1"/>
                 </DataTrigger>
@@ -238,6 +259,7 @@
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
                     <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
                 <Border Background="{DynamicResource BgHeader}" Padding="16,9" BorderBrush="{DynamicResource Divider}" BorderThickness="0,0,0,1">
@@ -272,21 +294,45 @@
                     </ScrollViewer>
                 </Grid>
 
-                <Border Grid.Row="2" Background="{DynamicResource BgHeader}" Padding="12,10">
+                                <Border x:Name="ReplyBar" Grid.Row="2" Visibility="Collapsed"
+                        Background="{DynamicResource BgHeader}" Padding="16,10,16,0">
+                    <Border Background="{DynamicResource BgInput}" CornerRadius="8" BorderBrush="#53BDEB"
+                            BorderThickness="4,0,0,0" Padding="12,8">
+                        <Grid>
+                            <TextBlock x:Name="ReplyBarText" Foreground="{DynamicResource TextSub}" FontSize="13.5"
+                                       TextTrimming="CharacterEllipsis" Margin="0,0,34,0"/>
+                            <Button Content="&#xE711;" Style="{StaticResource IconButton}" FontSize="12"
+                                    Width="28" Height="28" HorizontalAlignment="Right" Click="CancelReply_Click"/>
+                        </Grid>
+                    </Border>
+                </Border>
+
+                <Border Grid.Row="3" Background="{DynamicResource BgHeader}" Padding="12,10">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <Button Content="&#xE723;" Style="{StaticResource IconButton}" ToolTip="Joindre (bientôt)"/>
+                        <Button Content="&#xE723;" Style="{StaticResource IconButton}" Click="Attach_Click"
+                            ToolTip="Joindre une image ou un fichier"/>
                         <Border Grid.Column="1" Background="{DynamicResource BgInput}" CornerRadius="22" Margin="6,0" MinHeight="44">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
-                                <Button Content="&#xE76E;" Style="{StaticResource IconButton}" Margin="4,0,0,0" ToolTip="Emojis (bientôt)"/>
+                                <Button x:Name="EmojiBtn" Content="&#xE76E;" Style="{StaticResource IconButton}" Margin="4,0,0,0"
+                                        Click="Emoji_Click" ToolTip="Emojis"/>
+                                <Popup x:Name="EmojiPopup" PlacementTarget="{Binding ElementName=EmojiBtn}" Placement="Top"
+                                       StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade">
+                                    <Border Background="#1F2020" BorderBrush="#2A2D2E" BorderThickness="1" CornerRadius="12"
+                                            Padding="8" Margin="0,0,0,8" Width="340" Height="260">
+                                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                            <WrapPanel x:Name="EmojiPanel"/>
+                                        </ScrollViewer>
+                                    </Border>
+                                </Popup>
                                 <Grid Grid.Column="1" Margin="4,0,16,0" VerticalAlignment="Center">
                                     <TextBox x:Name="Input" Style="{StaticResource Bare}"
                                              TextChanged="Input_TextChanged" PreviewKeyDown="Input_PreviewKeyDown"/>

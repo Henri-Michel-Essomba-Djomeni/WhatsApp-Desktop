@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using WhatsApp.Core.Models;
+using System.Windows.Media;
 
 namespace WhatsApp.App;
 
@@ -17,6 +18,14 @@ public class MessageVM : Notifier
     public string Time { get; init; } = "";
     public bool IsMine { get; init; }
     public bool IsFirst { get; init; }
+        public string ReplyText { get; init; } = "";
+    public bool HasReply => ReplyText.Length > 0;
+    public string? MediaPath { get; set; }
+
+    private bool _deleted;
+    public bool IsDeleted { get => _deleted; set { _deleted = value; Raise(nameof(IsDeleted)); } }
+    private ImageSource? _picture;
+    public ImageSource? Picture { get => _picture; set { _picture = value; Raise(nameof(Picture)); } }
 
     public string Text { get => _text; set { _text = value; Raise(nameof(Text)); } }
     public MessageStatus Status

@@ -90,6 +90,17 @@ public sealed class Database : IDisposable
         }
     }
 
+        public ChatMessage? GetMessage(string id)
+    {
+        lock (_gate)
+        {
+            using var c = Cmd(@"SELECT id,chat_phone,sender_phone,type,text,media_path,sent_at,status,reply_to,deleted
+                                FROM messages WHERE id=$id", ("$id", id));
+            using var r = c.ExecuteReader();
+            return r.Read() ? ReadMessage(r) : null;
+        }
+    }
+
     public bool MessageExists(string id)
     {
         lock (_gate)

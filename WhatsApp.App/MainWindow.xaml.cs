@@ -1,11 +1,15 @@
 ﻿using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using Microsoft.Win32;
 using WhatsApp.Core.Models;
 
 namespace WhatsApp.App;
@@ -20,6 +24,7 @@ public partial class MainWindow : Window
     private bool _refreshing;
     private bool _iTyping;
     private bool _unreadOnly;
+    private MessageVM? _replyTo;
 
     // Barre de titre sombre (Windows 10/11)
     [DllImport("dwmapi.dll")]
@@ -37,6 +42,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         ChatList.ItemsSource = _chats;
         MessageList.ItemsSource = _messages;
+        BuildEmojiPanel();
         ProfileInitial.Text = Session.Me.Name.Length > 0 ? Session.Me.Name[..1].ToUpperInvariant() : "?";
 
         var node = Session.Node;   // ses événements arrivent sur des threads de fond
@@ -136,6 +142,7 @@ public partial class MainWindow : Window
     private void ShowChat(string? phone)
     {
         SetMyTyping(false);
+        ClearReply();
         _current = phone;
         _messages.Clear();
         ChatPanel.Visibility = phone != null ? Visibility.Visible : Visibility.Collapsed;
@@ -171,14 +178,26 @@ public partial class MainWindow : Window
     private MessageVM ToVM(ChatMessage m, bool? prevMine)
     {
         var mine = m.SenderPhone == Session.Me.Phone;
+        var pic = m.Type == MessageType.Image && !m.IsDeleted ? LoadImage(m.MediaPath) : null;
+        var reply = "";
+        if (m.ReplyToId != null)
+        {
+            var r = Session.Db.GetMessage(m.ReplyToId);
+            if (r != null)
+                reply = (r.SenderPhone == Session.Me.Phone ? "Vous : " : "") + Preview(r);
+        }
         return new MessageVM
         {
             Id = m.Id,
             IsMine = mine,
             IsFirst = prevMine != mine,
             Time = m.SentAt.ToString("HH:mm"),
-            Text = m.IsDeleted ? "🚫 Ce message a été supprimé" : Preview(m),
-            Status = m.Status
+            Text = m.IsDeleted ? "🚫 Ce message a été supprimé" : pic != null ? m.Text : Preview(m),
+            Status = m.Status,
+            Picture = pic,
+            ReplyText = reply,
+            MediaPath = m.IsDeleted ? null : m.MediaPath,
+            IsDeleted = m.IsDeleted
         };
     }
 
@@ -220,8 +239,16 @@ public partial class MainWindow : Window
     private void OnDeleted(string id)
     {
         var vm = _messages.FirstOrDefault(x => x.Id == id);
-        if (vm != null) vm.Text = "🚫 Ce message a été supprimé";
+        if (vm != null) MarkDeleted(vm);
         RefreshChats();
+    }
+
+    private static void MarkDeleted(MessageVM vm)
+    {
+        vm.Text = "🚫 Ce message a été supprimé";
+        vm.Picture = null;
+        vm.MediaPath = null;
+        vm.IsDeleted = true;
     }
 
     private void OnTyping(string phone, bool typing)
@@ -245,7 +272,9 @@ public partial class MainWindow : Window
         if (text.Length == 0 || _current == null) return;
         Input.Clear();
         SetMyTyping(false);
-        var m = await Session.Node.SendTextAsync(_current, text);
+        var replyId = _replyTo?.Id;
+        ClearReply();
+        var m = await Session.Node.SendTextAsync(_current, text, replyId);
         if (m.ChatPhone == _current)
         {
             _messages.Add(ToVM(m, _messages.LastOrDefault()?.IsMine));
@@ -261,6 +290,131 @@ public partial class MainWindow : Window
         SendBtn.Visibility = empty ? Visibility.Collapsed : Visibility.Visible;
         MicBtn.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
         if (!empty) { SetMyTyping(true); _typingTimer.Stop(); _typingTimer.Start(); }
+    }
+
+    // ---------- Images, fichiers, emojis ----------
+    private static readonly string[] ImageExts = { ".jpg", ".jpeg", ".png", ".gif", ".bmp" };
+
+    private static ImageSource? LoadImage(string? path)
+    {
+        if (path == null || !File.Exists(path)) return null;
+        try
+        {
+            var bi = new BitmapImage();
+            bi.BeginInit();
+            bi.CacheOption = BitmapCacheOption.OnLoad;   // ne verrouille pas le fichier
+            bi.DecodePixelWidth = 400;
+            bi.UriSource = new Uri(path);
+            bi.EndInit();
+            bi.Freeze();
+            return bi;
+        }
+        catch { return null; }
+    }
+
+    private async void Attach_Click(object sender, RoutedEventArgs e)
+    {
+        if (_current == null) return;
+        var dlg = new OpenFileDialog
+        {
+            Title = "Joindre",
+            Filter = "Images|*.jpg;*.jpeg;*.png;*.gif;*.bmp|Tous les fichiers|*.*",
+            Multiselect = true
+        };
+        if (dlg.ShowDialog(this) != true) return;
+        foreach (var f in dlg.FileNames)
+        {
+            if (new FileInfo(f).Length > 30 * 1024 * 1024)
+            {
+                MessageBox.Show(this, $"{Path.GetFileName(f)} dépasse 30 Mo.", "Fichier trop volumineux");
+                continue;
+            }
+            var type = ImageExts.Contains(Path.GetExtension(f).ToLowerInvariant())
+                ? MessageType.Image : MessageType.File;
+            var m = await Session.Node.SendMediaAsync(_current, f, type);
+            if (m.ChatPhone == _current)
+            {
+                _messages.Add(ToVM(m, _messages.LastOrDefault()?.IsMine));
+                ScrollToEnd();
+            }
+        }
+        RefreshChats();
+    }
+
+    private static readonly string[] Emojis =
+        ("😀 😃 😄 😁 😆 😅 😂 🤣 😊 😇 🙂 😉 😍 🥰 😘 😋 😛 😜 🤪 😎 🤩 🥳 😏 😒 😞 😔 😟 😕 🙁 😣 😢 😭 😤 😠 😡 🤯 😳 🥵 🥶 😱 😨 😰 🤗 🤔 🤭 🤫 😐 😶 🙄 😴 🤤 😷 🤒 🤕 🥴 🤠 " +
+         "👍 👎 👌 ✌️ 🤞 🤟 🤘 👏 🙌 🙏 💪 👋 🤝 ✍️ 🫶 " +
+         "❤️ 🧡 💛 💚 💙 💜 🖤 🤍 💔 💕 💖 💯 🔥 ✨ ⭐ 🎉 🎂 🎁 " +
+         "🐶 🐱 🦁 🐵 🌹 🌞 🌙 ☀️ 🌧️ 🍕 🍔 🍟 ☕ 🍺 ⚽ 🏀 🎵 📚 💻 📱 🚗 ✈️ 🏠 ✅ ❌ ❓ ❗").Split(' ');
+
+    private void BuildEmojiPanel()
+    {
+        foreach (var emoji in Emojis)
+        {
+            var b = new Button
+            {
+                Content = emoji, Style = (Style)FindResource("IconButton"),
+                FontFamily = new FontFamily("Segoe UI Emoji"), FontSize = 22, Width = 38, Height = 38,
+                Foreground = (Brush)FindResource("TextMain")
+            };
+            b.Click += (_, _) =>
+            {
+                var i = Input.CaretIndex;
+                Input.Text = Input.Text.Insert(i, emoji);
+                Input.CaretIndex = i + emoji.Length;
+                Input.Focus();
+            };
+            EmojiPanel.Children.Add(b);
+        }
+    }
+
+    private void Emoji_Click(object sender, RoutedEventArgs e) => EmojiPopup.IsOpen = !EmojiPopup.IsOpen;
+
+    // ---------- Menu contextuel : répondre, copier, supprimer ----------
+    private static MessageVM? VmOf(object sender) => (sender as FrameworkElement)?.DataContext as MessageVM;
+
+    private void Reply_Click(object sender, RoutedEventArgs e)
+    {
+        var vm = VmOf(sender);
+        if (vm == null || vm.IsDeleted) return;
+        _replyTo = vm;
+        ReplyBarText.Text = (vm.IsMine ? "Vous : " : "") + vm.Text;
+        ReplyBar.Visibility = Visibility.Visible;
+        Input.Focus();
+    }
+
+    private void CancelReply_Click(object sender, RoutedEventArgs e) => ClearReply();
+
+    private void ClearReply()
+    {
+        _replyTo = null;
+        ReplyBar.Visibility = Visibility.Collapsed;
+    }
+
+    private void Copy_Click(object sender, RoutedEventArgs e)
+    {
+        var vm = VmOf(sender);
+        if (vm != null && !vm.IsDeleted && vm.Text.Length > 0) Clipboard.SetText(vm.Text);
+    }
+
+    // Mon message : supprimé chez les deux. Message reçu : supprimé chez moi seulement.
+    private void Delete_Click(object sender, RoutedEventArgs e)
+    {
+        var vm = VmOf(sender);
+        if (vm == null || vm.IsDeleted || _current == null) return;
+        if (vm.IsMine) Session.Node.DeleteForEveryone(_current, vm.Id);
+        else Session.Db.DeleteMessage(vm.Id);
+        MarkDeleted(vm);
+        RefreshChats();
+    }
+
+    // Double-clic sur une bulle : ouvre l'image ou le fichier
+    private void Bubble_MouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ClickCount != 2 || VmOf(sender) is not { MediaPath: { } path }) return;
+        if (!File.Exists(path)) return;
+        try { Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }); }
+        catch { MessageBox.Show(this, "Impossible d'ouvrir ce fichier.", "Erreur"); }
     }
 
     private void SetMyTyping(bool typing)
