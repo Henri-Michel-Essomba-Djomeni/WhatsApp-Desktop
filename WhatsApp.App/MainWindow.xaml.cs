@@ -11,6 +11,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using WhatsApp.Core.Models;
+using NAudio.Wave;
 
 namespace WhatsApp.App;
 
@@ -25,6 +26,10 @@ public partial class MainWindow : Window
     private bool _iTyping;
     private bool _unreadOnly;
     private MessageVM? _replyTo;
+    private WaveIn? _wave;
+    private WaveFileWriter? _writer;
+    private string? _recPath;
+    private string? _recChat;
 
     // Barre de titre sombre (Windows 10/11)
     [DllImport("dwmapi.dll")]
@@ -416,6 +421,50 @@ public partial class MainWindow : Window
         try { Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }); }
         catch { MessageBox.Show(this, "Impossible d'ouvrir ce fichier.", "Erreur"); }
     }
+
+        // ---------- Messages vocaux ----------
+    private void Mic_Click(object sender, RoutedEventArgs e)
+    {
+        if (_current == null) return;
+        if (_wave == null) StartRecording(); else _wave.StopRecording();
+    }
+
+    private void StartRecording()
+    {
+        try
+        {
+            _recChat = _current;
+            _recPath = Path.Combine(Path.GetTempPath(), $"vocal_{DateTime.Now:yyyyMMdd_HHmmss}.wav");
+            _wave = new WaveIn { WaveFormat = new WaveFormat(16000, 16, 1) };
+            _writer = new WaveFileWriter(_recPath, _wave.WaveFormat);
+            _wave.DataAvailable += (_, a) => _writer?.Write(a.Buffer, 0, a.BytesRecorded);
+            _wave.RecordingStopped += (_, _) => Dispatcher.InvokeAsync(FinishRecording);
+            _wave.StartRecording();
+            MicBtn.Foreground = Brushes.IndianRed;
+            MicBtn.ToolTip = "Cliquez pour arrêter et envoyer";
+        }
+        catch (Exception ex)
+        {
+            _wave?.Dispose(); _writer?.Dispose(); _wave = null; _writer = null;
+            MessageBox.Show(this, "Micro indisponible : " + ex.Message, "Message vocal");
+        }
+    }
+
+    private async void FinishRecording()
+    {
+        _writer?.Dispose(); _writer = null;
+        _wave?.Dispose(); _wave = null;
+        MicBtn.ClearValue(Control.ForegroundProperty);
+        MicBtn.ToolTip = "Enregistrer un message vocal";
+        if (_recPath == null || _recChat == null || !File.Exists(_recPath)) return;
+        var m = await Session.Node.SendMediaAsync(_recChat, _recPath, MessageType.Voice);
+        if (m.ChatPhone == _current)
+        {
+            _messages.Add(ToVM(m, _messages.LastOrDefault()?.IsMine));
+            ScrollToEnd();
+        }
+        RefreshChats();
+    }   
 
     private void SetMyTyping(bool typing)
     {

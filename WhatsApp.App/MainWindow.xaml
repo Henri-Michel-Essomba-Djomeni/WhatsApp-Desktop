@@ -343,7 +343,8 @@
                             </Grid>
                         </Border>
                         <Grid Grid.Column="2">
-                            <Button x:Name="MicBtn" Content="&#xE720;" Style="{StaticResource IconButton}" ToolTip="Message vocal (bientôt)"/>
+                            <Button x:Name="MicBtn" Content="&#xE720;" Style="{StaticResource IconButton}"
+        Click="Mic_Click" ToolTip="Enregistrer un message vocal"/>
                             <Button x:Name="SendBtn" Content="&#xE724;" Style="{StaticResource IconButton}"
                                     Foreground="{DynamicResource Accent}" Click="Send_Click" Visibility="Collapsed"/>
                         </Grid>
