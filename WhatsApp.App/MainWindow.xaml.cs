@@ -51,6 +51,7 @@ public partial class MainWindow : Window
         ChatList.ItemsSource = _chats;
         MessageList.ItemsSource = _messages;
         BuildEmojiPanel();
+        LoadMyProfile();
         ProfileInitial.Text = Session.Me.Name.Length > 0 ? Session.Me.Name[..1].ToUpperInvariant() : "?";
 
         var node = Session.Node;   // ses événements arrivent sur des threads de fond
@@ -76,12 +77,12 @@ public partial class MainWindow : Window
         if (!IsLoaded || sender is not RadioButton rb) return;
         var tag = rb.Tag as string;
         ChatsPanel.Visibility = tag == "chats" ? Visibility.Visible : Visibility.Collapsed;
-        OtherPanel.Visibility = tag == "chats" ? Visibility.Collapsed : Visibility.Visible;
+        SettingsPanel.Visibility = tag == "settings" ? Visibility.Visible : Visibility.Collapsed;
+        OtherPanel.Visibility = tag is "calls" or "status" ? Visibility.Visible : Visibility.Collapsed;
         switch (tag)
         {
             case "calls": OtherTitle.Text = "Appels"; OtherText.Text = "Les appels vocaux et vidéo arrivent bientôt."; break;
             case "status": OtherTitle.Text = "Statuts"; OtherText.Text = "Les statuts arrivent bientôt."; break;
-            case "settings": OtherTitle.Text = "Paramètres"; OtherText.Text = "Les paramètres arrivent bientôt."; break;
         }
     }
 
@@ -117,7 +118,8 @@ public partial class MainWindow : Window
                 Time = s.LastMessage == null ? "" : ShortTime(s.LastMessage.SentAt),
                 Unread = s.Unread,
                 Online = Session.Node.IsOnline(s.Contact.Phone),
-                Typing = _typing.Contains(s.Contact.Phone)
+                Typing = _typing.Contains(s.Contact.Phone),
+                Avatar = LoadImage(s.Contact.AvatarPath)
             });
         }
         ChatList.SelectedItem = _chats.FirstOrDefault(c => c.Phone == _current);
@@ -146,6 +148,62 @@ public partial class MainWindow : Window
         if (Session.Db.GetContact(phone) == null)
             Session.Db.SaveContact(new Contact { Phone = phone, Name = phone });
         ShowChat(phone);
+    }
+
+        // ---------- Paramètres ----------
+    private void LoadMyProfile()
+    {
+        var me = Session.Me;
+        var img = LoadImage(me.AvatarPath);
+        ProfilePhoto.ImageSource = img;
+        SetPhoto.ImageSource = img;
+        var initial = me.Name.Length > 0 ? me.Name[..1].ToUpperInvariant() : "?";
+        ProfileInitial.Text = initial;
+        SetInitial.Text = initial;
+        SetName.Text = me.Name;
+        SetAbout.Text = me.About;
+        SetPhone.Text = me.Phone;
+        var light = Session.Db.GetSetting("theme") == "light";
+        ThemeDark.IsChecked = !light;
+        ThemeLight.IsChecked = light;
+    }
+
+    private void SaveProfile_Click(object sender, RoutedEventArgs e)
+    {
+        var name = SetName.Text.Trim();
+        if (name.Length == 0) { SaveInfo.Text = "Le nom est obligatoire."; return; }
+        Session.Me.Name = name;
+        Session.Me.About = SetAbout.Text.Trim();
+        Session.Db.SetSetting("name", Session.Me.Name);
+        Session.Db.SetSetting("about", Session.Me.About);
+        Session.Node.BroadcastProfile();
+        LoadMyProfile();
+        SaveInfo.Text = "Enregistré ✓";
+    }
+
+    private void ChangePhoto_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new OpenFileDialog { Title = "Photo de profil", Filter = "Images|*.jpg;*.jpeg;*.png;*.bmp" };
+        if (dlg.ShowDialog(this) != true) return;
+        if (new FileInfo(dlg.FileName).Length > 5 * 1024 * 1024)
+        {
+            MessageBox.Show(this, "La photo dépasse 5 Mo.", "Photo trop lourde");
+            return;
+        }
+        var path = Path.Combine(Session.Db.MediaFolder, $"me_avatar_{DateTime.Now.Ticks}{Path.GetExtension(dlg.FileName)}");
+        File.Copy(dlg.FileName, path, true);
+        Session.Me.AvatarPath = path;
+        Session.Db.SetSetting("avatar", path);
+        Session.Node.BroadcastProfile();
+        LoadMyProfile();
+    }
+
+    private void Theme_Checked(object sender, RoutedEventArgs e)
+    {
+        if (!IsLoaded || sender is not RadioButton rb) return;
+        var dark = (rb.Tag as string) == "dark";
+        Theme.Apply(dark);
+        Session.Db.SetSetting("theme", dark ? "dark" : "light");
     }
 
     // ---------- Conversation ----------
@@ -182,6 +240,7 @@ public partial class MainWindow : Window
         var name = string.IsNullOrWhiteSpace(c?.Name) ? _current : c!.Name;
         ChatName.Text = name;
         ChatInitial.Text = name[..1].ToUpperInvariant();
+        ChatPhoto.ImageSource = LoadImage(c?.AvatarPath);
         ChatStatus.Text = _typing.Contains(_current) ? "écrit…"
             : Session.Node.IsOnline(_current) ? "en ligne" : "hors ligne";
     }
@@ -322,6 +381,7 @@ public partial class MainWindow : Window
             bi.BeginInit();
             bi.CacheOption = BitmapCacheOption.OnLoad;   // ne verrouille pas le fichier
             bi.DecodePixelWidth = 400;
+            bi.CreateOptions = BitmapCreateOptions.IgnoreImageCache;   // la photo change, le chemin reste
             bi.UriSource = new Uri(path);
             bi.EndInit();
             bi.Freeze();

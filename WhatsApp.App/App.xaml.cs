@@ -9,6 +9,7 @@ public partial class App : Application
         base.OnStartup(e);
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
         var login = new LoginWindow();
+        Theme.Apply(Session.Db.GetSetting("theme") != "light");
         if (login.ShowDialog() == true)
         {
             var main = new MainWindow();

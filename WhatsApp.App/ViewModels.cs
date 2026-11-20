@@ -59,6 +59,7 @@ public class MessageVM : Notifier
 
 public class ChatVM
 {
+    public ImageSource? Avatar { get; init; }
     public string Phone { get; init; } = "";
     public string Name { get; init; } = "";
     public string LastText { get; init; } = "";

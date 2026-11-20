@@ -13,6 +13,7 @@ public static class Session
     public static void Start(string phone, string name)
     {
         Db = new Database(phone);
+        name = Db.GetSetting("name") ?? name;   // un nom modifié dans les paramètres est conservé
         Db.SetSetting("name", name);
         Me = new Contact
         {

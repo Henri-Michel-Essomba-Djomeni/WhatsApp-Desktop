@@ -290,6 +290,12 @@ public sealed class P2PNode : IDisposable
             _ = peer.SendAsync(new Packet { Type = PacketType.Delete, From = Me.Phone, Id = messageId });
     }
 
+        public void BroadcastProfile()
+    {
+        var hello = BuildHello();
+        foreach (var p in _peers.Values) _ = p.SendAsync(hello);
+    }
+
     public void Dispose()
     {
         _cts.Cancel();
