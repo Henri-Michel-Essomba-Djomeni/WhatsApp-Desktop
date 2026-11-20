@@ -57,6 +57,32 @@
                         </Border>
                         <Image Source="{Binding Picture}" MaxWidth="320" MaxHeight="320" Stretch="Uniform"
                                HorizontalAlignment="Left"/>
+                        <StackPanel x:Name="Voice" Orientation="Horizontal" Visibility="Collapsed" MinWidth="240">
+    <Button Content="{Binding PlayGlyph}" Style="{StaticResource IconButton}" Click="Play_Click"
+            Foreground="#D1D7DB" Width="38" Height="38" VerticalAlignment="Center"/>
+    <StackPanel Margin="4,0,6,0" VerticalAlignment="Center">
+        <ItemsControl ItemsSource="{Binding Bars}" Height="32">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center"/>
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <Rectangle x:Name="Bar" Width="3" Margin="1,0" Height="{Binding Height}"
+                               RadiusX="1.5" RadiusY="1.5" Fill="#7F8A8F" VerticalAlignment="Center"/>
+                    <DataTemplate.Triggers>
+                        <DataTrigger Binding="{Binding IsPlayed}" Value="True">
+                            <Setter TargetName="Bar" Property="Fill" Value="#53BDEB"/>
+                        </DataTrigger>
+                    </DataTemplate.Triggers>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <TextBlock Text="{Binding VoiceTime}" FontSize="11" Foreground="#9AA3A6" Margin="2,2,0,0"/>
+    </StackPanel>
+</StackPanel>
+                        
                         <TextBlock x:Name="Txt" Text="{Binding Text}" TextWrapping="Wrap" FontSize="14.5"
                                    Foreground="{DynamicResource TextMain}"/>
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,2,0,0">
@@ -70,6 +96,9 @@
                       VerticalAlignment="Top" Visibility="Collapsed"/>
             </Grid>
             <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding IsVoice}" Value="True">
+                    <Setter TargetName="Voice" Property="Visibility" Value="Visible"/>
+                </DataTrigger>
                 <DataTrigger Binding="{Binding Text}" Value="">
                     <Setter TargetName="Txt" Property="Visibility" Value="Collapsed"/>
                 </DataTrigger>

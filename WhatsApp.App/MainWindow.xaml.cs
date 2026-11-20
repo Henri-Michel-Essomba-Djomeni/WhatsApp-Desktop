@@ -27,6 +27,9 @@ public partial class MainWindow : Window
     private bool _unreadOnly;
     private MessageVM? _replyTo;
     private WaveIn? _wave;
+    private readonly MediaPlayer _player = new();
+    private readonly DispatcherTimer _playTimer = new() { Interval = TimeSpan.FromMilliseconds(100) };
+    private MessageVM? _playing;
     private WaveFileWriter? _writer;
     private string? _recPath;
     private string? _recChat;
@@ -60,6 +63,8 @@ public partial class MainWindow : Window
 
         _typingTimer.Tick += (_, _) => { _typingTimer.Stop(); SetMyTyping(false); };
         Closed += (_, _) => Session.Stop();
+                _playTimer.Tick += PlayTick;
+        _player.MediaEnded += (_, _) => StopPlayback();
 
         RefreshChats();
         ShowChat(null);
@@ -147,6 +152,7 @@ public partial class MainWindow : Window
     private void ShowChat(string? phone)
     {
         SetMyTyping(false);
+        StopPlayback();
         ClearReply();
         _current = phone;
         _messages.Clear();
@@ -180,10 +186,12 @@ public partial class MainWindow : Window
             : Session.Node.IsOnline(_current) ? "en ligne" : "hors ligne";
     }
 
-    private MessageVM ToVM(ChatMessage m, bool? prevMine)
+        private MessageVM ToVM(ChatMessage m, bool? prevMine)
     {
         var mine = m.SenderPhone == Session.Me.Phone;
         var pic = m.Type == MessageType.Image && !m.IsDeleted ? LoadImage(m.MediaPath) : null;
+        var voice = m.Type == MessageType.Voice && !m.IsDeleted;
+        var (bars, dur) = voice ? AnalyzeWav(m.MediaPath) : (new List<BarVM>(), TimeSpan.Zero);
         var reply = "";
         if (m.ReplyToId != null)
         {
@@ -197,12 +205,16 @@ public partial class MainWindow : Window
             IsMine = mine,
             IsFirst = prevMine != mine,
             Time = m.SentAt.ToString("HH:mm"),
-            Text = m.IsDeleted ? "🚫 Ce message a été supprimé" : pic != null ? m.Text : Preview(m),
+            Text = m.IsDeleted ? "🚫 Ce message a été supprimé" : voice ? "" : pic != null ? m.Text : Preview(m),
             Status = m.Status,
             Picture = pic,
             ReplyText = reply,
             MediaPath = m.IsDeleted ? null : m.MediaPath,
-            IsDeleted = m.IsDeleted
+            IsDeleted = m.IsDeleted,
+            IsVoice = voice,
+            Bars = bars,
+            Duration = dur,
+            VoiceTime = Fmt(dur)
         };
     }
 
@@ -253,6 +265,7 @@ public partial class MainWindow : Window
         vm.Text = "🚫 Ce message a été supprimé";
         vm.Picture = null;
         vm.MediaPath = null;
+        vm.IsVoice = false;
         vm.IsDeleted = true;
     }
 
@@ -383,7 +396,7 @@ public partial class MainWindow : Window
         var vm = VmOf(sender);
         if (vm == null || vm.IsDeleted) return;
         _replyTo = vm;
-        ReplyBarText.Text = (vm.IsMine ? "Vous : " : "") + vm.Text;
+        ReplyBarText.Text = (vm.IsMine ? "Vous : " : "") + (vm.IsVoice ? "🎤 Message vocal" : vm.Text);
         ReplyBar.Visibility = Visibility.Visible;
         Input.Focus();
     }
@@ -416,7 +429,7 @@ public partial class MainWindow : Window
     // Double-clic sur une bulle : ouvre l'image ou le fichier
     private void Bubble_MouseDown(object sender, MouseButtonEventArgs e)
     {
-        if (e.ClickCount != 2 || VmOf(sender) is not { MediaPath: { } path }) return;
+        if (e.ClickCount != 2 || VmOf(sender) is not { IsVoice: false, MediaPath: { } path }) return;
         if (!File.Exists(path)) return;
         try { Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }); }
         catch { MessageBox.Show(this, "Impossible d'ouvrir ce fichier.", "Erreur"); }
@@ -465,6 +478,87 @@ public partial class MainWindow : Window
         }
         RefreshChats();
     }   
+
+        // ---------- Lecture des vocaux + ondes ----------
+    private static string Fmt(TimeSpan t) => $"{(int)t.TotalMinutes}:{t.Seconds:00}";
+
+    // Calcule la hauteur de 40 barres à partir des pics du fichier WAV
+    private static (List<BarVM>, TimeSpan) AnalyzeWav(string? path, int count = 40)
+    {
+        var peaks = new double[count];
+        var dur = TimeSpan.Zero;
+        var ok = false;
+        try
+        {
+            if (path != null && File.Exists(path))
+            {
+                using var r = new WaveFileReader(path);
+                dur = r.TotalTime;
+                if (r.WaveFormat.BitsPerSample == 16)
+                {
+                    var data = new byte[r.Length];
+                    var samples = r.Read(data, 0, data.Length) / 2;
+                    for (int i = 0; i < samples; i++)
+                    {
+                        var v = Math.Abs((int)BitConverter.ToInt16(data, i * 2)) / 32768.0;
+                        var b = Math.Min(count - 1, (int)((long)i * count / samples));
+                        if (v > peaks[b]) peaks[b] = v;
+                    }
+                    ok = samples > 0;
+                }
+            }
+        }
+        catch { /* fichier illisible : on affiche une onde par défaut */ }
+
+        var max = peaks.Max();
+        var bars = new List<BarVM>();
+        for (int i = 0; i < count; i++)
+        {
+            var h = ok && max > 0 ? 4 + Math.Sqrt(peaks[i] / max) * 24 : 4 + (i * 7 % 11) * 2;
+            bars.Add(new BarVM { Height = h });
+        }
+        return (bars, dur);
+    }
+
+    private void Play_Click(object sender, RoutedEventArgs e)
+    {
+        var vm = VmOf(sender);
+        if (vm?.MediaPath == null || !File.Exists(vm.MediaPath)) return;
+
+        if (_playing == vm)   // même message : pause / reprise
+        {
+            if (vm.IsPlaying) { _player.Pause(); _playTimer.Stop(); vm.IsPlaying = false; }
+            else { _player.Play(); _playTimer.Start(); vm.IsPlaying = true; }
+            return;
+        }
+        StopPlayback();
+        _playing = vm;
+        _player.Open(new Uri(vm.MediaPath));
+        _player.Play();
+        vm.IsPlaying = true;
+        _playTimer.Start();
+    }
+
+    private void PlayTick(object? s, EventArgs e)
+    {
+        if (_playing == null) return;
+        var total = _playing.Duration.TotalSeconds;
+        if (total <= 0) return;
+        var n = (int)Math.Round(_player.Position.TotalSeconds / total * _playing.Bars.Count);
+        for (int i = 0; i < _playing.Bars.Count; i++) _playing.Bars[i].IsPlayed = i < n;
+        _playing.VoiceTime = Fmt(_player.Position);
+    }
+
+    private void StopPlayback()
+    {
+        _playTimer.Stop();
+        _player.Stop();
+        if (_playing == null) return;
+        _playing.IsPlaying = false;
+        foreach (var b in _playing.Bars) b.IsPlayed = false;
+        _playing.VoiceTime = Fmt(_playing.Duration);
+        _playing = null;
+    }
 
     private void SetMyTyping(bool typing)
     {
