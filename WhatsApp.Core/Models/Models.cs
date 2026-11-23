@@ -29,3 +29,14 @@ public class ChatMessage
 
 // Une ligne de la liste de discussions (barre de gauche)
 public record ChatSummary(Contact Contact, ChatMessage? LastMessage, int Unread);
+
+public class StatusItem
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string AuthorPhone { get; set; } = "";
+    public MessageType Type { get; set; } = MessageType.Text;   // Text ou Image
+    public string Text { get; set; } = "";
+    public string? MediaPath { get; set; }
+    public string Color { get; set; } = "#1F8A70";               // fond d'un statut texte
+    public DateTime CreatedAt { get; set; } = DateTime.Now;
+}

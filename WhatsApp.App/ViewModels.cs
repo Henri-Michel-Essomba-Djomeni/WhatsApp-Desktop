@@ -30,6 +30,7 @@ public class MessageVM : Notifier
     public string Time { get; init; } = "";
     public bool IsMine { get; init; }
     public bool IsFirst { get; init; }
+    public bool IsSticker { get; init; }
     public string ReplyText { get; init; } = "";
     public bool HasReply => ReplyText.Length > 0;
     public string? MediaPath { get; set; }
@@ -70,4 +71,14 @@ public class ChatVM
     public string Initial => Name.Length > 0 ? Name[..1].ToUpperInvariant() : "?";
     public string Preview => Typing ? "écrit…" : LastText;
     public bool HasUnread => Unread > 0;
+}
+
+public class StatusVM
+{
+    public string Phone { get; init; } = "";
+    public string Name { get; init; } = "";
+    public string Sub { get; init; } = "";
+    public DateTime Last { get; init; }
+    public ImageSource? Avatar { get; init; }
+    public string Initial => Name.Length > 0 ? Name[..1].ToUpperInvariant() : "?";
 }

@@ -1,5 +1,6 @@
 ﻿using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -21,6 +22,13 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<MessageVM> _messages = new();
     private readonly HashSet<string> _typing = new();
     private readonly DispatcherTimer _typingTimer = new() { Interval = TimeSpan.FromSeconds(2) };
+    private readonly DispatcherTimer _viewTimer = new() { Interval = TimeSpan.FromMilliseconds(50) };
+    private List<StatusItem> _viewItems = new();
+    private int _viewIndex;
+    private int _viewElapsedMs;
+    private const int StatusDurationMs = 5000;
+    private static readonly string[] StatusColors =
+        { "#1F8A70", "#8E44AD", "#2980B9", "#C0392B", "#D35400", "#16A085", "#34495E", "#B83280" };
     private string? _current;
     private bool _refreshing;
     private bool _iTyping;
@@ -51,12 +59,16 @@ public partial class MainWindow : Window
         ChatList.ItemsSource = _chats;
         MessageList.ItemsSource = _messages;
         BuildEmojiPanel();
+        LoadStickers();
         LoadMyProfile();
         ProfileInitial.Text = Session.Me.Name.Length > 0 ? Session.Me.Name[..1].ToUpperInvariant() : "?";
 
         var node = Session.Node;   // ses événements arrivent sur des threads de fond
         node.MessageReceived += m => Dispatcher.InvokeAsync(() => OnIncoming(m));
         node.StatusChanged += (id, s) => Dispatcher.InvokeAsync(() => OnStatus(id, s));
+        _viewTimer.Tick += ViewTick;
+        node.StatusesChanged += () => Dispatcher.InvokeAsync(RefreshStatuses);
+        RefreshStatuses();
         node.PeerPresence += (p, on) => Dispatcher.InvokeAsync(() => { RefreshChats(); UpdateHeader(); });
         node.ContactUpdated += c => Dispatcher.InvokeAsync(() => { RefreshChats(); UpdateHeader(); });
         node.Typing += (p, t) => Dispatcher.InvokeAsync(() => OnTyping(p, t));
@@ -76,13 +88,15 @@ public partial class MainWindow : Window
     {
         if (!IsLoaded || sender is not RadioButton rb) return;
         var tag = rb.Tag as string;
+        if (tag != "status") CloseViewer();
         ChatsPanel.Visibility = tag == "chats" ? Visibility.Visible : Visibility.Collapsed;
         SettingsPanel.Visibility = tag == "settings" ? Visibility.Visible : Visibility.Collapsed;
-        OtherPanel.Visibility = tag is "calls" or "status" ? Visibility.Visible : Visibility.Collapsed;
-        switch (tag)
+        StatusPanel.Visibility = tag == "status" ? Visibility.Visible : Visibility.Collapsed;
+        OtherPanel.Visibility = tag == "calls" ? Visibility.Visible : Visibility.Collapsed;
+        if (tag == "calls")
         {
-            case "calls": OtherTitle.Text = "Appels"; OtherText.Text = "Les appels vocaux et vidéo arrivent bientôt."; break;
-            case "status": OtherTitle.Text = "Statuts"; OtherText.Text = "Les statuts arrivent bientôt."; break;
+            OtherTitle.Text = "Appels";
+            OtherText.Text = "Les appels vocaux et vidéo arrivent bientôt.";
         }
     }
 
@@ -248,7 +262,7 @@ public partial class MainWindow : Window
         private MessageVM ToVM(ChatMessage m, bool? prevMine)
     {
         var mine = m.SenderPhone == Session.Me.Phone;
-        var pic = m.Type == MessageType.Image && !m.IsDeleted ? LoadImage(m.MediaPath) : null;
+        var pic = m.Type is MessageType.Image or MessageType.Sticker && !m.IsDeleted ? LoadImage(m.MediaPath) : null;
         var voice = m.Type == MessageType.Voice && !m.IsDeleted;
         var (bars, dur) = voice ? AnalyzeWav(m.MediaPath) : (new List<BarVM>(), TimeSpan.Zero);
         var reply = "";
@@ -271,6 +285,7 @@ public partial class MainWindow : Window
             MediaPath = m.IsDeleted ? null : m.MediaPath,
             IsDeleted = m.IsDeleted,
             IsVoice = voice,
+            IsSticker = m.Type == MessageType.Sticker && pic != null,
             Bars = bars,
             Duration = dur,
             VoiceTime = Fmt(dur)
@@ -372,7 +387,7 @@ public partial class MainWindow : Window
     // ---------- Images, fichiers, emojis ----------
     private static readonly string[] ImageExts = { ".jpg", ".jpeg", ".png", ".gif", ".bmp" };
 
-    private static ImageSource? LoadImage(string? path)
+    private static ImageSource? LoadImage(string? path, int decodeWidth = 400)
     {
         if (path == null || !File.Exists(path)) return null;
         try
@@ -380,7 +395,7 @@ public partial class MainWindow : Window
             var bi = new BitmapImage();
             bi.BeginInit();
             bi.CacheOption = BitmapCacheOption.OnLoad;   // ne verrouille pas le fichier
-            bi.DecodePixelWidth = 400;
+            bi.DecodePixelWidth = decodeWidth;
             bi.CreateOptions = BitmapCreateOptions.IgnoreImageCache;   // la photo change, le chemin reste
             bi.UriSource = new Uri(path);
             bi.EndInit();
@@ -618,6 +633,227 @@ public partial class MainWindow : Window
         foreach (var b in _playing.Bars) b.IsPlayed = false;
         _playing.VoiceTime = Fmt(_playing.Duration);
         _playing = null;
+    }
+
+        // ---------- Stickers ----------
+    private string StickersFolder => Path.Combine(Session.Db.Folder, "stickers");
+
+    private static readonly (string Text, string C1, string C2)[] DefaultStickers =
+    {
+        ("Merci !", "#FF8A5B", "#E8505B"), ("Bravo !", "#43C59E", "#2A9D8F"), ("LOL", "#FFD166", "#F4A261"),
+        ("OK", "#4D96FF", "#3A5BA0"), ("Salut !", "#9B5DE5", "#6A4C93"), ("Bonne nuit", "#3A506B", "#1C2541"),
+        ("Top !", "#F15BB5", "#B5179E"), ("Oups", "#80ED99", "#38A3A5")
+    };
+
+    private void LoadStickers()
+    {
+        Directory.CreateDirectory(StickersFolder);
+        if (!Directory.EnumerateFiles(StickersFolder).Any())
+        {
+            int i = 1;
+            foreach (var (text, c1, c2) in DefaultStickers)
+                MakeSticker(Path.Combine(StickersFolder, $"defaut_{i++}.png"), text, c1, c2);
+        }
+        StickerPanel.Children.Clear();
+        foreach (var f in Directory.EnumerateFiles(StickersFolder).OrderBy(x => x))
+        {
+            var img = LoadImage(f);
+            if (img == null) continue;
+            var b = new Button
+            {
+                Width = 78, Height = 78, Margin = new Thickness(3), Cursor = Cursors.Hand,
+                Background = Brushes.Transparent, BorderThickness = new Thickness(0),
+                Content = new Image { Source = img, Stretch = Stretch.Uniform, Margin = new Thickness(3) }
+            };
+            var path = f;
+            b.Click += async (_, _) => await SendSticker(path);
+            StickerPanel.Children.Add(b);
+        }
+    }
+
+    private static void MakeSticker(string path, string text, string c1, string c2)
+    {
+        var dv = new DrawingVisual();
+        using (var dc = dv.RenderOpen())
+        {
+            var brush = new LinearGradientBrush(
+                (Color)ColorConverter.ConvertFromString(c1), (Color)ColorConverter.ConvertFromString(c2), 45);
+            dc.DrawRoundedRectangle(brush, null, new Rect(8, 8, 240, 240), 40, 40);
+            var ft = new FormattedText(text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
+                new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Bold, FontStretches.Normal),
+                40, Brushes.White, 1.0)
+            { MaxTextWidth = 210, TextAlignment = TextAlignment.Center };
+            dc.DrawText(ft, new Point(23, 128 - ft.Height / 2));
+        }
+        var rtb = new RenderTargetBitmap(256, 256, 96, 96, PixelFormats.Pbgra32);
+        rtb.Render(dv);
+        var enc = new PngBitmapEncoder();
+        enc.Frames.Add(BitmapFrame.Create(rtb));
+        using var fs = File.Create(path);
+        enc.Save(fs);
+    }
+
+    private void Sticker_Click(object sender, RoutedEventArgs e) => StickerPopup.IsOpen = !StickerPopup.IsOpen;
+
+    private void AddSticker_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new OpenFileDialog
+        {
+            Title = "Ajouter des stickers",
+            Filter = "Images|*.png;*.jpg;*.jpeg;*.gif;*.bmp",
+            Multiselect = true
+        };
+        StickerPopup.IsOpen = false;
+        if (dlg.ShowDialog(this) != true) return;
+        foreach (var f in dlg.FileNames)
+            File.Copy(f, Path.Combine(StickersFolder, $"perso_{DateTime.Now.Ticks}{Path.GetExtension(f)}"), true);
+        LoadStickers();
+        StickerPopup.IsOpen = true;
+    }
+
+    private async Task SendSticker(string path)
+    {
+        if (_current == null) return;
+        StickerPopup.IsOpen = false;
+        var m = await Session.Node.SendMediaAsync(_current, path, MessageType.Sticker);
+        if (m.ChatPhone == _current)
+        {
+            _messages.Add(ToVM(m, _messages.LastOrDefault()?.IsMine));
+            ScrollToEnd();
+        }
+        RefreshChats();
+    }
+
+        // ---------- Statuts (24 h) ----------
+    private void RefreshStatuses()
+    {
+        var all = Session.Db.GetActiveStatuses();
+        var mine = all.Where(s => s.AuthorPhone == Session.Me.Phone).ToList();
+        MyStatusInitial.Text = Session.Me.Name.Length > 0 ? Session.Me.Name[..1].ToUpperInvariant() : "?";
+        MyStatusSub.Text = mine.Count == 0
+            ? "Ajouter une mise à jour"
+            : $"{mine.Count} mise(s) à jour · {mine.Last().CreatedAt:HH:mm}";
+
+        var list = new List<StatusVM>();
+        foreach (var g in all.Where(s => s.AuthorPhone != Session.Me.Phone).GroupBy(s => s.AuthorPhone))
+        {
+            var c = Session.Db.GetContact(g.Key);
+            var last = g.Max(s => s.CreatedAt);
+            list.Add(new StatusVM
+            {
+                Phone = g.Key,
+                Name = string.IsNullOrWhiteSpace(c?.Name) ? g.Key : c!.Name,
+                Sub = $"{g.Count()} mise(s) à jour · {last:HH:mm}",
+                Last = last,
+                Avatar = LoadImage(c?.AvatarPath)
+            });
+        }
+        StatusList.ItemsSource = list.OrderByDescending(x => x.Last).ToList();
+    }
+
+    private void StatusList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (StatusList.SelectedItem is not StatusVM vm) return;
+        StatusList.SelectedItem = null;
+        OpenViewer(vm.Phone);
+    }
+
+    private void MyStatus_Click(object sender, MouseButtonEventArgs e) => OpenViewer(Session.Me.Phone);
+
+    private async void AddTextStatus_Click(object sender, RoutedEventArgs e)
+    {
+        var text = Dialogs.Ask(this, "Statut texte", "Écrivez votre statut");
+        if (string.IsNullOrWhiteSpace(text)) return;
+        await Session.Node.PostStatusAsync(MessageType.Text, text.Trim(),
+            StatusColors[Random.Shared.Next(StatusColors.Length)]);
+    }
+
+    private async void AddPhotoStatus_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new OpenFileDialog { Title = "Statut photo", Filter = "Images|*.jpg;*.jpeg;*.png;*.bmp" };
+        if (dlg.ShowDialog(this) != true) return;
+        if (new FileInfo(dlg.FileName).Length > 15 * 1024 * 1024)
+        {
+            MessageBox.Show(this, "La photo dépasse 15 Mo.", "Photo trop lourde");
+            return;
+        }
+        await Session.Node.PostStatusAsync(MessageType.Image, "", "#000000", dlg.FileName);
+    }
+
+    // Visionneuse plein écran : 5 s par statut, clic à gauche = précédent, ailleurs = suivant
+    private void OpenViewer(string phone)
+    {
+        _viewItems = Session.Db.GetActiveStatuses().Where(s => s.AuthorPhone == phone).ToList();
+        if (_viewItems.Count == 0) return;
+        _viewIndex = 0;
+        StatusViewer.Visibility = Visibility.Visible;
+        ShowStatus();
+    }
+
+    private void ShowStatus()
+    {
+        var s = _viewItems[_viewIndex];
+        var mine = s.AuthorPhone == Session.Me.Phone;
+        var c = Session.Db.GetContact(s.AuthorPhone);
+        ViewAuthor.Text = mine ? "Mon statut" : string.IsNullOrWhiteSpace(c?.Name) ? s.AuthorPhone : c!.Name;
+        ViewTime.Text = s.CreatedAt.ToString("HH:mm");
+        ViewDelete.Visibility = mine ? Visibility.Visible : Visibility.Collapsed;
+
+        var isImage = s.Type == MessageType.Image;
+        ViewImage.Visibility = isImage ? Visibility.Visible : Visibility.Collapsed;
+        ViewTextBg.Visibility = isImage ? Visibility.Collapsed : Visibility.Visible;
+        if (isImage) ViewImage.Source = LoadImage(s.MediaPath, 1400);
+        else
+        {
+            ViewText.Text = s.Text;
+            ViewTextBg.Background = (Brush)new BrushConverter().ConvertFromString(s.Color)!;
+        }
+        _viewElapsedMs = 0;
+        ViewFill.Width = 0;
+        _viewTimer.Start();
+    }
+
+    private void ViewTick(object? sender, EventArgs e)
+    {
+        _viewElapsedMs += 50;
+        ViewFill.Width = ViewTrack.ActualWidth * Math.Min(1.0, (double)_viewElapsedMs / StatusDurationMs);
+        if (_viewElapsedMs >= StatusDurationMs) NextStatus();
+    }
+
+    private void NextStatus()
+    {
+        if (_viewIndex + 1 < _viewItems.Count) { _viewIndex++; ShowStatus(); }
+        else CloseViewer();
+    }
+
+    private void PrevStatus()
+    {
+        if (_viewIndex > 0) _viewIndex--;
+        ShowStatus();
+    }
+
+    private void CloseViewer()
+    {
+        _viewTimer.Stop();
+        StatusViewer.Visibility = Visibility.Collapsed;
+        ViewImage.Source = null;
+    }
+
+    private void Viewer_MouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.GetPosition(StatusViewer).X < StatusViewer.ActualWidth / 3) PrevStatus(); else NextStatus();
+    }
+
+    private void ViewClose_Click(object sender, RoutedEventArgs e) => CloseViewer();
+
+    private void ViewDelete_Click(object sender, RoutedEventArgs e)
+    {
+        if (_viewItems.Count == 0) return;
+        Session.Node.DeleteStatus(_viewItems[_viewIndex].Id);
+        _viewItems.RemoveAt(_viewIndex);
+        if (_viewItems.Count == 0) { CloseViewer(); return; }
+        if (_viewIndex >= _viewItems.Count) _viewIndex = _viewItems.Count - 1;
+        ShowStatus();
     }
 
     private void SetMyTyping(bool typing)

@@ -29,7 +29,10 @@ public sealed class Database : IDisposable
                 text TEXT, media_path TEXT, sent_at INTEGER, status INTEGER,
                 reply_to TEXT, deleted INTEGER DEFAULT 0);
             CREATE INDEX IF NOT EXISTS ix_chat ON messages(chat_phone, sent_at);
-            CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);");
+            CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
+            CREATE TABLE IF NOT EXISTS statuses(
+                id TEXT PRIMARY KEY, author TEXT, type INTEGER, text TEXT,
+                media_path TEXT, color TEXT, created_at INTEGER);");
     }
 
     // ---- Outils internes ----
@@ -181,6 +184,48 @@ public sealed class Database : IDisposable
     public void SetSetting(string key, string value) => Exec(
         "INSERT INTO settings(key,value) VALUES($k,$v) ON CONFLICT(key) DO UPDATE SET value=$v",
         ("$k", key), ("$v", value));
+
+    
+        // ---- Statuts (24 h) ----
+    public void AddStatus(StatusItem s) => Exec(@"
+        INSERT OR IGNORE INTO statuses(id,author,type,text,media_path,color,created_at)
+        VALUES($id,$a,$t,$tx,$mp,$c,$at)",
+        ("$id", s.Id), ("$a", s.AuthorPhone), ("$t", (int)s.Type), ("$tx", s.Text),
+        ("$mp", s.MediaPath), ("$c", s.Color),
+        ("$at", new DateTimeOffset(s.CreatedAt).ToUnixTimeMilliseconds()));
+
+    public bool StatusExists(string id)
+    {
+        lock (_gate)
+        {
+            using var c = Cmd("SELECT 1 FROM statuses WHERE id=$id", ("$id", id));
+            return c.ExecuteScalar() != null;
+        }
+    }
+
+    public List<StatusItem> GetActiveStatuses()
+    {
+        lock (_gate)
+        {
+            var list = new List<StatusItem>();
+            var since = DateTimeOffset.Now.AddHours(-24).ToUnixTimeMilliseconds();
+            using var c = Cmd(@"SELECT id,author,type,text,media_path,color,created_at
+                                FROM statuses WHERE created_at>$s ORDER BY created_at", ("$s", since));
+            using var r = c.ExecuteReader();
+            while (r.Read())
+                list.Add(new StatusItem
+                {
+                    Id = r.GetString(0), AuthorPhone = r.GetString(1), Type = (MessageType)r.GetInt32(2),
+                    Text = r.IsDBNull(3) ? "" : r.GetString(3),
+                    MediaPath = r.IsDBNull(4) ? null : r.GetString(4),
+                    Color = r.IsDBNull(5) ? "#1F8A70" : r.GetString(5),
+                    CreatedAt = DateTimeOffset.FromUnixTimeMilliseconds(r.GetInt64(6)).LocalDateTime
+                });
+            return list;
+        }
+    }
+
+    public void DeleteStatus(string id) => Exec("DELETE FROM statuses WHERE id=$id", ("$id", id));
 
     public void Dispose() { lock (_gate) _c.Dispose(); }
 }

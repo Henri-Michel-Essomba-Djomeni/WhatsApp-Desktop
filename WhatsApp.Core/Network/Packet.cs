@@ -2,8 +2,7 @@ using WhatsApp.Core.Models;
 
 namespace WhatsApp.Core.Network;
 
-public enum PacketType { Hello, Message, Delivered, Read, Typing, Delete }
-
+public enum PacketType { Hello, Message, Delivered, Read, Typing, Delete, Status, StatusDelete }
 // Un seul format de paquet pour tous les échanges (sérialisé en JSON).
 public class Packet
 {
@@ -24,4 +23,5 @@ public class Packet
     public List<string> Ids { get; set; } = new();
     // Typing
     public bool IsTyping { get; set; }
+    public string Color { get; set; } = "";   // fond d'un statut texte
 }

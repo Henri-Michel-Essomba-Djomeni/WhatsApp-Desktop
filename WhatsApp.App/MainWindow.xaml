@@ -30,7 +30,7 @@
         </Style>
 
         <!-- Bulle de message avec "queue" sur le premier message d'une série -->
-                <DataTemplate DataType="{x:Type local:MessageVM}">
+        <DataTemplate DataType="{x:Type local:MessageVM}">
             <Grid x:Name="Row" Margin="48,1,48,1" HorizontalAlignment="Left" MaxWidth="580">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="8"/>
@@ -55,34 +55,33 @@
                             <TextBlock Text="{Binding ReplyText}" FontSize="13" MaxHeight="40"
                                        TextTrimming="CharacterEllipsis" TextWrapping="Wrap" Foreground="#B5BDC0"/>
                         </Border>
-                        <Image Source="{Binding Picture}" MaxWidth="320" MaxHeight="320" Stretch="Uniform"
-                               HorizontalAlignment="Left"/>
+                        <Image x:Name="Pic" Source="{Binding Picture}" MaxWidth="320" MaxHeight="320"
+                               Stretch="Uniform" HorizontalAlignment="Left"/>
                         <StackPanel x:Name="Voice" Orientation="Horizontal" Visibility="Collapsed" MinWidth="240">
-    <Button Content="{Binding PlayGlyph}" Style="{StaticResource IconButton}" Click="Play_Click"
-            Foreground="#D1D7DB" Width="38" Height="38" VerticalAlignment="Center"/>
-    <StackPanel Margin="4,0,6,0" VerticalAlignment="Center">
-        <ItemsControl ItemsSource="{Binding Bars}" Height="32">
-            <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate>
-                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center"/>
-                </ItemsPanelTemplate>
-            </ItemsControl.ItemsPanel>
-            <ItemsControl.ItemTemplate>
-                <DataTemplate>
-                    <Rectangle x:Name="Bar" Width="3" Margin="1,0" Height="{Binding Height}"
-                               RadiusX="1.5" RadiusY="1.5" Fill="#7F8A8F" VerticalAlignment="Center"/>
-                    <DataTemplate.Triggers>
-                        <DataTrigger Binding="{Binding IsPlayed}" Value="True">
-                            <Setter TargetName="Bar" Property="Fill" Value="#53BDEB"/>
-                        </DataTrigger>
-                    </DataTemplate.Triggers>
-                </DataTemplate>
-            </ItemsControl.ItemTemplate>
-        </ItemsControl>
-        <TextBlock Text="{Binding VoiceTime}" FontSize="11" Foreground="#9AA3A6" Margin="2,2,0,0"/>
-    </StackPanel>
-</StackPanel>
-                        
+                            <Button Content="{Binding PlayGlyph}" Style="{StaticResource IconButton}" Click="Play_Click"
+                                    Foreground="#D1D7DB" Width="38" Height="38" VerticalAlignment="Center"/>
+                            <StackPanel Margin="4,0,6,0" VerticalAlignment="Center">
+                                <ItemsControl ItemsSource="{Binding Bars}" Height="32">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center"/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Rectangle x:Name="Bar" Width="3" Margin="1,0" Height="{Binding Height}"
+                                                       RadiusX="1.5" RadiusY="1.5" Fill="#7F8A8F" VerticalAlignment="Center"/>
+                                            <DataTemplate.Triggers>
+                                                <DataTrigger Binding="{Binding IsPlayed}" Value="True">
+                                                    <Setter TargetName="Bar" Property="Fill" Value="#53BDEB"/>
+                                                </DataTrigger>
+                                            </DataTemplate.Triggers>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <TextBlock Text="{Binding VoiceTime}" FontSize="11" Foreground="#9AA3A6" Margin="2,2,0,0"/>
+                            </StackPanel>
+                        </StackPanel>
                         <TextBlock x:Name="Txt" Text="{Binding Text}" TextWrapping="Wrap" FontSize="14.5"
                                    Foreground="{DynamicResource TextMain}"/>
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,2,0,0">
@@ -132,6 +131,13 @@
                     <Setter TargetName="TailR" Property="Visibility" Value="Visible"/>
                     <Setter TargetName="Bubble" Property="CornerRadius" Value="8,0,8,8"/>
                 </MultiDataTrigger>
+                <DataTrigger Binding="{Binding IsSticker}" Value="True">
+                    <Setter TargetName="Bubble" Property="Background" Value="Transparent"/>
+                    <Setter TargetName="TailL" Property="Visibility" Value="Collapsed"/>
+                    <Setter TargetName="TailR" Property="Visibility" Value="Collapsed"/>
+                    <Setter TargetName="Pic" Property="MaxWidth" Value="170"/>
+                    <Setter TargetName="Pic" Property="MaxHeight" Value="170"/>
+                </DataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>
     </Window.Resources>
@@ -280,7 +286,8 @@
                         <TextBlock x:Name="OtherText" Margin="0,12,0,0" TextWrapping="Wrap" Foreground="{DynamicResource TextSub}"/>
                     </StackPanel>
                 </Grid>
-                                <ScrollViewer x:Name="SettingsPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+
+                <ScrollViewer x:Name="SettingsPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="24,20">
                         <TextBlock Text="Paramètres" FontSize="24" FontWeight="SemiBold" Foreground="{DynamicResource TextMain}"/>
                         <Grid Width="110" Height="110" Margin="0,24,0,0" HorizontalAlignment="Center">
@@ -317,6 +324,79 @@
                         <TextBlock Text="Powered by nOX-00" FontSize="11" Foreground="{DynamicResource TextSub}" Margin="0,40,0,0"/>
                     </StackPanel>
                 </ScrollViewer>
+
+                                <Grid x:Name="StatusPanel" Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="Statuts" FontSize="24" FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextMain}" Margin="20,16,14,10"/>
+
+                    <Border Grid.Row="1" Margin="6,0" CornerRadius="10" Padding="10" Background="Transparent"
+                            Cursor="Hand" MouseLeftButtonUp="MyStatus_Click">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid Width="49" Height="49">
+                                <Ellipse Fill="{DynamicResource Accent}"/>
+                                <TextBlock x:Name="MyStatusInitial" Foreground="#0B141A" FontSize="20"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Grid>
+                            <StackPanel Grid.Column="1" Margin="14,0" VerticalAlignment="Center">
+                                <TextBlock Text="Mon statut" FontSize="16.5" Foreground="{DynamicResource TextMain}"/>
+                                <TextBlock x:Name="MyStatusSub" FontSize="13.5" Margin="0,3,0,0"
+                                           Foreground="{DynamicResource TextSub}"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button Content="Aa" FontFamily="Segoe UI" FontWeight="Bold" FontSize="15"
+                                        Style="{StaticResource IconButton}" Click="AddTextStatus_Click" ToolTip="Statut texte"/>
+                                <Button Content="&#xE722;" Style="{StaticResource IconButton}"
+                                        Click="AddPhotoStatus_Click" ToolTip="Statut photo"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <TextBlock Grid.Row="2" Text="Récents" FontSize="13" Foreground="{DynamicResource TextSub}"
+                               Margin="22,16,14,6"/>
+
+                    <ListBox x:Name="StatusList" Grid.Row="3" Background="Transparent" BorderThickness="0"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             ItemContainerStyle="{StaticResource ChatItem}"
+                             SelectionChanged="StatusList_SelectionChanged">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Grid Width="53" Height="53">
+                                        <Ellipse Stroke="{DynamicResource Accent}" StrokeThickness="2.5"/>
+                                        <Grid Width="45" Height="45">
+                                            <Ellipse Fill="#5D6B73"/>
+                                            <TextBlock Text="{Binding Initial}" Foreground="White" FontSize="19"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            <Ellipse><Ellipse.Fill><ImageBrush ImageSource="{Binding Avatar}" Stretch="UniformToFill"/></Ellipse.Fill></Ellipse>
+                                        </Grid>
+                                    </Grid>
+                                    <StackPanel Grid.Column="1" Margin="14,0" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Name}" FontSize="16.5" Foreground="{DynamicResource TextMain}"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Text="{Binding Sub}" FontSize="13.5" Margin="0,3,0,0"
+                                                   Foreground="{DynamicResource TextSub}"/>
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+
             </Grid>
         </Border>
 
@@ -363,7 +443,7 @@
                     </ScrollViewer>
                 </Grid>
 
-                                <Border x:Name="ReplyBar" Grid.Row="2" Visibility="Collapsed"
+                <Border x:Name="ReplyBar" Grid.Row="2" Visibility="Collapsed"
                         Background="{DynamicResource BgHeader}" Padding="16,10,16,0">
                     <Border Background="{DynamicResource BgInput}" CornerRadius="8" BorderBrush="#53BDEB"
                             BorderThickness="4,0,0,0" Padding="12,8">
@@ -383,8 +463,12 @@
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <Button Content="&#xE723;" Style="{StaticResource IconButton}" Click="Attach_Click"
-                            ToolTip="Joindre une image ou un fichier"/>
+                        <StackPanel Orientation="Horizontal">
+                            <Button Content="&#xE723;" Style="{StaticResource IconButton}" Click="Attach_Click"
+                                    ToolTip="Joindre une image ou un fichier"/>
+                            <Button x:Name="StickerBtn" Content="🏷" FontFamily="Segoe UI Emoji" FontSize="18"
+                                    Style="{StaticResource IconButton}" Click="Sticker_Click" ToolTip="Stickers"/>
+                        </StackPanel>
                         <Border Grid.Column="1" Background="{DynamicResource BgInput}" CornerRadius="22" Margin="6,0" MinHeight="44">
                             <Grid>
                                 <Grid.ColumnDefinitions>
@@ -395,13 +479,32 @@
                                         Click="Emoji_Click" ToolTip="Emojis"/>
                                 <Popup x:Name="EmojiPopup" PlacementTarget="{Binding ElementName=EmojiBtn}" Placement="Top"
                                        StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade">
-                                    <Border Background="{DynamicResource BgHeader}" BorderBrush="#2A2D2E" BorderThickness="1" CornerRadius="12"
+                                    <Border Background="{DynamicResource BgHeader}" BorderBrush="{DynamicResource Divider}" BorderThickness="1" CornerRadius="12"
                                             Padding="8" Margin="0,0,0,8" Width="340" Height="260">
                                         <ScrollViewer VerticalScrollBarVisibility="Auto">
                                             <WrapPanel x:Name="EmojiPanel"/>
                                         </ScrollViewer>
                                     </Border>
                                 </Popup>
+
+                                <Popup x:Name="StickerPopup" PlacementTarget="{Binding ElementName=StickerBtn}" Placement="Top"
+                                       StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade">
+                                    <Border Background="{DynamicResource BgHeader}" BorderBrush="{DynamicResource Divider}" BorderThickness="1"
+                                            CornerRadius="12" Padding="8" Margin="0,0,0,8" Width="360" Height="300">
+                                        <Grid>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="*"/>
+                                            </Grid.RowDefinitions>
+                                            <Button Content="＋ Ajouter un sticker" Style="{StaticResource GreenButton}" Padding="14,6"
+                                                    HorizontalAlignment="Left" Margin="0,0,0,8" Click="AddSticker_Click"/>
+                                            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                                                <WrapPanel x:Name="StickerPanel"/>
+                                            </ScrollViewer>
+                                        </Grid>
+                                    </Border>
+                                </Popup>
+
                                 <Grid Grid.Column="1" Margin="4,0,16,0" VerticalAlignment="Center">
                                     <TextBox x:Name="Input" Style="{StaticResource Bare}"
                                              TextChanged="Input_TextChanged" PreviewKeyDown="Input_PreviewKeyDown"/>
@@ -413,7 +516,7 @@
                         </Border>
                         <Grid Grid.Column="2">
                             <Button x:Name="MicBtn" Content="&#xE720;" Style="{StaticResource IconButton}"
-        Click="Mic_Click" ToolTip="Enregistrer un message vocal"/>
+                                    Click="Mic_Click" ToolTip="Enregistrer un message vocal"/>
                             <Button x:Name="SendBtn" Content="&#xE724;" Style="{StaticResource IconButton}"
                                     Foreground="{DynamicResource Accent}" Click="Send_Click" Visibility="Collapsed"/>
                         </Grid>
@@ -430,6 +533,36 @@
                                Foreground="{DynamicResource TextSub}" HorizontalAlignment="Center"/>
                 </StackPanel>
             </Border>
+
+                        <Grid x:Name="StatusViewer" Visibility="Collapsed" Background="#0B0C0C"
+                  MouseLeftButtonDown="Viewer_MouseDown">
+                <Grid x:Name="ViewTextBg" Background="#1F8A70">
+                    <TextBlock x:Name="ViewText" FontSize="34" Foreground="White" TextWrapping="Wrap"
+                               TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center"
+                               Margin="70"/>
+                </Grid>
+                <Image x:Name="ViewImage" Stretch="Uniform" Margin="0,80,0,30"/>
+                <StackPanel VerticalAlignment="Top" Margin="24,16,24,0">
+                    <Grid x:Name="ViewTrack" Height="4" Margin="0,0,0,12">
+                        <Border Background="#55FFFFFF" CornerRadius="2"/>
+                        <Border x:Name="ViewFill" Background="White" CornerRadius="2"
+                                HorizontalAlignment="Left" Width="0"/>
+                    </Grid>
+                    <Grid>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock x:Name="ViewAuthor" Foreground="White" FontSize="16" FontWeight="SemiBold"/>
+                            <TextBlock x:Name="ViewTime" Foreground="#C9CED1" FontSize="13" Margin="10,2,0,0"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button x:Name="ViewDelete" Content="&#xE74D;" Style="{StaticResource IconButton}"
+                                    Foreground="White" Click="ViewDelete_Click" ToolTip="Supprimer ce statut"/>
+                            <Button Content="&#xE711;" Style="{StaticResource IconButton}"
+                                    Foreground="White" Click="ViewClose_Click" ToolTip="Fermer"/>
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Grid>
+
         </Grid>
     </Grid>
 </Window>

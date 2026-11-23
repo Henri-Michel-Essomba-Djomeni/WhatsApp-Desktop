@@ -28,6 +28,7 @@ public sealed class P2PNode : IDisposable
     public event Action<string, bool>? Typing;                    // numéro, est en train d'écrire
     public event Action<string>? MessageDeleted;                  // id du message
     public event Action<Contact>? ContactUpdated;
+    public event Action? StatusesChanged;
 
     public P2PNode(Database db, Contact me) { _db = db; Me = me; }
 
@@ -160,6 +161,8 @@ public sealed class P2PNode : IDisposable
                 break;
             case PacketType.Typing: Typing?.Invoke(phone, p.IsTyping); break;
             case PacketType.Delete: _db.DeleteMessage(p.Id); MessageDeleted?.Invoke(p.Id); break;
+            case PacketType.Status: OnStatus(phone, p); break;
+            case PacketType.StatusDelete: _db.DeleteStatus(p.Id); StatusesChanged?.Invoke(); break;
         }
     }
 
@@ -182,6 +185,7 @@ public sealed class P2PNode : IDisposable
         ContactUpdated?.Invoke(contact);
         PeerPresence?.Invoke(p.From, true);
         FlushPending(p.From);   // renvoie les messages restés en attente
+        SendMyStatuses(p.From);   // mes statuts actifs pour le contact qui vient de se connecter
     }
 
     private void OnMessage(PeerConnection conn, string phone, Packet p)
@@ -294,6 +298,68 @@ public sealed class P2PNode : IDisposable
     {
         var hello = BuildHello();
         foreach (var p in _peers.Values) _ = p.SendAsync(hello);
+    }
+
+        // ---------- Statuts (24 h) ----------
+    public async Task<StatusItem> PostStatusAsync(MessageType type, string text, string color, string? filePath = null)
+    {
+        var s = new StatusItem { AuthorPhone = Me.Phone, Type = type, Text = text, Color = color };
+        if (filePath != null)
+        {
+            s.MediaPath = Path.Combine(_db.MediaFolder, $"status_{s.Id}{Path.GetExtension(filePath)}");
+            File.Copy(filePath, s.MediaPath, true);
+        }
+        _db.AddStatus(s);
+        foreach (var peer in _peers.Values) await SendStatusTo(peer, s);
+        StatusesChanged?.Invoke();
+        return s;
+    }
+
+    private async Task SendStatusTo(PeerConnection peer, StatusItem s)
+    {
+        var pk = new Packet
+        {
+            Type = PacketType.Status, From = Me.Phone, Id = s.Id, MsgType = s.Type, Text = s.Text,
+            Color = s.Color, SentAtMs = new DateTimeOffset(s.CreatedAt).ToUnixTimeMilliseconds()
+        };
+        if (s.MediaPath != null && File.Exists(s.MediaPath))
+        {
+            pk.Data = await File.ReadAllBytesAsync(s.MediaPath);
+            pk.FileName = Path.GetFileName(s.MediaPath);
+        }
+        await peer.SendAsync(pk);
+    }
+
+    private void SendMyStatuses(string phone) => _ = Task.Run(async () =>
+    {
+        if (!_peers.TryGetValue(phone, out var peer)) return;
+        foreach (var s in _db.GetActiveStatuses().Where(x => x.AuthorPhone == Me.Phone))
+            await SendStatusTo(peer, s);
+    });
+
+    public void DeleteStatus(string id)
+    {
+        _db.DeleteStatus(id);
+        var pk = new Packet { Type = PacketType.StatusDelete, From = Me.Phone, Id = id };
+        foreach (var peer in _peers.Values) _ = peer.SendAsync(pk);
+        StatusesChanged?.Invoke();
+    }
+
+    private void OnStatus(string phone, Packet p)
+    {
+        if (_db.StatusExists(p.Id)) return;   // déjà reçu
+        string? media = null;
+        if (p.Data is { Length: > 0 })
+        {
+            media = Path.Combine(_db.MediaFolder, $"status_{p.Id}{Path.GetExtension(p.FileName)}");
+            File.WriteAllBytes(media, p.Data);
+        }
+        _db.AddStatus(new StatusItem
+        {
+            Id = p.Id, AuthorPhone = phone, Type = p.MsgType, Text = p.Text, Color = p.Color, MediaPath = media,
+            CreatedAt = DateTimeOffset.FromUnixTimeMilliseconds(p.SentAtMs).LocalDateTime
+        });
+        StatusesChanged?.Invoke();
     }
 
     public void Dispose()
