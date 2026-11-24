@@ -2,7 +2,8 @@ using WhatsApp.Core.Models;
 
 namespace WhatsApp.Core.Network;
 
-public enum PacketType { Hello, Message, Delivered, Read, Typing, Delete, Status, StatusDelete }
+public enum PacketType { Hello, Message, Delivered, Read, Typing, Delete, Status, StatusDelete,
+                         CallInvite, CallAccept, CallReject, CallEnd }
 // Un seul format de paquet pour tous les échanges (sérialisé en JSON).
 public class Packet
 {
@@ -24,4 +25,6 @@ public class Packet
     // Typing
     public bool IsTyping { get; set; }
     public string Color { get; set; } = "";   // fond d'un statut texte
+    public int Port { get; set; }       // port UDP audio de l'appelant ou du destinataire
+    public bool Video { get; set; }     // réservé à l'appel vidéo
 }

@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
 
@@ -15,7 +16,15 @@ public sealed class PeerConnection : IDisposable
     public event Action<PeerConnection, Packet>? PacketReceived;
     public event Action<PeerConnection>? Closed;
 
-    public PeerConnection(TcpClient tcp) { _tcp = tcp; _stream = tcp.GetStream(); }
+    public string RemoteAddress { get; }
+
+    public PeerConnection(TcpClient tcp)
+    {
+        _tcp = tcp;
+        _stream = tcp.GetStream();
+        var ip = (tcp.Client.RemoteEndPoint as IPEndPoint)?.Address;
+        RemoteAddress = ip == null ? "" : (ip.IsIPv4MappedToIPv6 ? ip.MapToIPv4() : ip).ToString();
+    }
 
     public void StartReading() => _ = Task.Run(ReadLoop);
 

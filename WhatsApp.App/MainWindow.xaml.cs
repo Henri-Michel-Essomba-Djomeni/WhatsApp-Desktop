@@ -23,6 +23,8 @@ public partial class MainWindow : Window
     private readonly HashSet<string> _typing = new();
     private readonly DispatcherTimer _typingTimer = new() { Interval = TimeSpan.FromSeconds(2) };
     private readonly DispatcherTimer _viewTimer = new() { Interval = TimeSpan.FromMilliseconds(50) };
+    private readonly DispatcherTimer _callTimer = new() { Interval = TimeSpan.FromSeconds(1) };
+    private readonly DispatcherTimer _ringTimer = new() { Interval = TimeSpan.FromMilliseconds(1600) };
     private List<StatusItem> _viewItems = new();
     private int _viewIndex;
     private int _viewElapsedMs;
@@ -71,6 +73,10 @@ public partial class MainWindow : Window
         RefreshStatuses();
         node.PeerPresence += (p, on) => Dispatcher.InvokeAsync(() => { RefreshChats(); UpdateHeader(); });
         node.ContactUpdated += c => Dispatcher.InvokeAsync(() => { RefreshChats(); UpdateHeader(); });
+        Session.Calls.Changed += () => Dispatcher.InvokeAsync(CallChanged);
+        node.PeerPresence += (p, on) => { if (!on) Session.Calls.PeerLost(p); };
+        _callTimer.Tick += (_, _) => UpdateCallStatus();
+        _ringTimer.Tick += (_, _) => System.Media.SystemSounds.Exclamation.Play();
         node.Typing += (p, t) => Dispatcher.InvokeAsync(() => OnTyping(p, t));
         node.MessageDeleted += id => Dispatcher.InvokeAsync(() => OnDeleted(id));
 
@@ -854,6 +860,95 @@ public partial class MainWindow : Window
         if (_viewItems.Count == 0) { CloseViewer(); return; }
         if (_viewIndex >= _viewItems.Count) _viewIndex = _viewItems.Count - 1;
         ShowStatus();
+    }
+
+    // ---------- Appel vocal ----------
+    private void VoiceCall_Click(object sender, RoutedEventArgs e)
+    {
+        if (_current == null) return;
+        var error = Session.Calls.StartCall(_current);
+        if (error != null) MessageBox.Show(this, error, "Appel");
+    }
+
+    private async void CallChanged()
+    {
+        var calls = Session.Calls;
+        if (calls.Peer != null)
+        {
+            var c = Session.Db.GetContact(calls.Peer);
+            var name = string.IsNullOrWhiteSpace(c?.Name) ? calls.Peer : c!.Name;
+            CallName.Text = name;
+            CallInitial.Text = name[..1].ToUpperInvariant();
+            CallPhoto.ImageSource = LoadImage(c?.AvatarPath);
+        }
+        _ringTimer.Stop();
+        _callTimer.Stop();
+
+        switch (calls.State)
+        {
+            case CallState.Calling:
+                ShowCall("Appel en cours…", accept: false, mute: false);
+                ResetMuteButton();
+                _ringTimer.Start();
+                break;
+            case CallState.Ringing:
+                ShowCall("Appel vocal entrant", accept: true, mute: false);
+                ResetMuteButton();
+                System.Media.SystemSounds.Exclamation.Play();
+                _ringTimer.Start();
+                break;
+            case CallState.Active:
+                ShowCall("00:00", accept: false, mute: true);
+                UpdateCallStatus();
+                _callTimer.Start();
+                break;
+            default:   // Idle : on affiche la raison, puis on ferme
+                if (CallOverlay.Visibility != Visibility.Visible) return;
+                CallStatus.Text = calls.EndReason;
+                CallAcceptBtn.Visibility = Visibility.Collapsed;
+                CallMuteBtn.Visibility = Visibility.Collapsed;
+                CallEndBtn.Visibility = Visibility.Collapsed;
+                await Task.Delay(1500);
+                if (Session.Calls.State == CallState.Idle) CallOverlay.Visibility = Visibility.Collapsed;
+                break;
+        }
+    }
+
+    private void ShowCall(string status, bool accept, bool mute)
+    {
+        CallOverlay.Visibility = Visibility.Visible;
+        CallStatus.Text = status;
+        CallAcceptBtn.Visibility = accept ? Visibility.Visible : Visibility.Collapsed;
+        CallMuteBtn.Visibility = mute ? Visibility.Visible : Visibility.Collapsed;
+        CallEndBtn.Visibility = Visibility.Visible;
+    }
+
+    private void UpdateCallStatus()
+    {
+        var d = DateTime.Now - Session.Calls.StartedAt;
+        CallStatus.Text = $"{(int)d.TotalMinutes:00}:{d.Seconds:00}";
+    }
+
+    private void ResetMuteButton()
+    {
+        CallMuteBtn.Background = (Brush)new BrushConverter().ConvertFromString("#3B4143")!;
+        CallMuteBtn.Foreground = Brushes.White;
+    }
+
+    private void CallAccept_Click(object sender, RoutedEventArgs e) => Session.Calls.Accept();
+
+    private void CallEnd_Click(object sender, RoutedEventArgs e)
+    {
+        if (Session.Calls.State == CallState.Ringing) Session.Calls.Decline();
+        else Session.Calls.Hangup();
+    }
+
+    private void CallMute_Click(object sender, RoutedEventArgs e)
+    {
+        Session.Calls.ToggleMute();
+        var muted = Session.Calls.Muted;
+        CallMuteBtn.Background = muted ? Brushes.White : (Brush)new BrushConverter().ConvertFromString("#3B4143")!;
+        CallMuteBtn.Foreground = muted ? Brushes.Black : Brushes.White;
     }
 
     private void SetMyTyping(bool typing)

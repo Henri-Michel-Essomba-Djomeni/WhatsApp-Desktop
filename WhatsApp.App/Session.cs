@@ -9,6 +9,7 @@ public static class Session
     public static Database Db = null!;
     public static P2PNode Node = null!;
     public static Contact Me = null!;
+    public static CallManager Calls = null!;
 
     public static void Start(string phone, string name)
     {
@@ -22,8 +23,9 @@ public static class Session
             AvatarPath = Db.GetSetting("avatar")
         };
         Node = new P2PNode(Db, Me);
+        Calls = new CallManager(Node);
         Node.Start();
     }
 
-    public static void Stop() { Node?.Dispose(); Db?.Dispose(); }
+    public static void Stop() { Calls?.Dispose(); Node?.Dispose(); Db?.Dispose(); }
 }

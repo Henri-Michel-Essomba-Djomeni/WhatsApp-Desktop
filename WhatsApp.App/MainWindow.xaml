@@ -429,6 +429,8 @@
                             </StackPanel>
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal">
+                            <Button Content="&#xE717;" Style="{StaticResource IconButton}"
+                                    Click="VoiceCall_Click" ToolTip="Appel vocal"/>
                             <Button Content="&#xE714;" Style="{StaticResource IconButton}" ToolTip="Appel vidéo (bientôt)"/>
                             <Button Content="&#xE721;" Style="{StaticResource IconButton}" ToolTip="Rechercher (bientôt)"/>
                             <Button Content="⋮" FontFamily="Segoe UI" FontSize="22" Style="{StaticResource IconButton}" ToolTip="Menu"/>
@@ -564,5 +566,54 @@
             </Grid>
 
         </Grid>
+
+                <Grid x:Name="CallOverlay" Grid.ColumnSpan="3" Visibility="Collapsed" Background="#F0111B21">
+            <Grid.Resources>
+                <Style x:Key="CallBtn" TargetType="Button">
+                    <Setter Property="Width" Value="64"/>
+                    <Setter Property="Height" Value="64"/>
+                    <Setter Property="Margin" Value="14,0"/>
+                    <Setter Property="FontFamily" Value="Segoe MDL2 Assets"/>
+                    <Setter Property="FontSize" Value="24"/>
+                    <Setter Property="Foreground" Value="White"/>
+                    <Setter Property="Cursor" Value="Hand"/>
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="Button">
+                                <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="32">
+                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="Bd" Property="Opacity" Value="0.85"/>
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                </Style>
+            </Grid.Resources>
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                <Grid Width="140" Height="140" HorizontalAlignment="Center">
+                    <Ellipse Fill="#5D6B73"/>
+                    <TextBlock x:Name="CallInitial" FontSize="56" Foreground="White"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    <Ellipse><Ellipse.Fill><ImageBrush x:Name="CallPhoto" Stretch="UniformToFill"/></Ellipse.Fill></Ellipse>
+                </Grid>
+                <TextBlock x:Name="CallName" FontSize="28" Foreground="White" HorizontalAlignment="Center" Margin="0,22,0,0"/>
+                <TextBlock x:Name="CallStatus" FontSize="16" Foreground="#C9CED1" HorizontalAlignment="Center" Margin="0,8,0,0"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,50,0,0">
+                    <Button x:Name="CallMuteBtn" Content="&#xE720;" Style="{StaticResource CallBtn}"
+                            Background="#3B4143" Click="CallMute_Click" ToolTip="Couper le micro"/>
+                    <Button x:Name="CallAcceptBtn" Content="&#xE717;" Style="{StaticResource CallBtn}"
+                            Background="#21C063" Click="CallAccept_Click" ToolTip="Répondre"/>
+                    <Button x:Name="CallEndBtn" Content="&#xE711;" Style="{StaticResource CallBtn}"
+                            Background="#E0414B" Click="CallEnd_Click" ToolTip="Raccrocher"/>
+                </StackPanel>
+                <TextBlock Text="Powered by nOX-00" FontSize="11" Foreground="#8D9496"
+                           HorizontalAlignment="Center" Margin="0,60,0,0"/>
+            </StackPanel>
+        </Grid>
+
     </Grid>
 </Window>

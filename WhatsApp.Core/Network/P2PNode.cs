@@ -29,6 +29,7 @@ public sealed class P2PNode : IDisposable
     public event Action<string>? MessageDeleted;                  // id du message
     public event Action<Contact>? ContactUpdated;
     public event Action? StatusesChanged;
+    public event Action<string, Packet>? CallSignal;
 
     public P2PNode(Database db, Contact me) { _db = db; Me = me; }
 
@@ -163,6 +164,11 @@ public sealed class P2PNode : IDisposable
             case PacketType.Delete: _db.DeleteMessage(p.Id); MessageDeleted?.Invoke(p.Id); break;
             case PacketType.Status: OnStatus(phone, p); break;
             case PacketType.StatusDelete: _db.DeleteStatus(p.Id); StatusesChanged?.Invoke(); break;
+            case PacketType.CallInvite:
+            case PacketType.CallAccept:
+            case PacketType.CallReject:
+            case PacketType.CallEnd:
+                CallSignal?.Invoke(phone, p); break;
         }
     }
 
@@ -360,6 +366,16 @@ public sealed class P2PNode : IDisposable
             CreatedAt = DateTimeOffset.FromUnixTimeMilliseconds(p.SentAtMs).LocalDateTime
         });
         StatusesChanged?.Invoke();
+    }
+
+    // ---------- Appels : signalisation ----------
+    public string? GetPeerAddress(string phone) =>
+        _peers.TryGetValue(phone, out var p) && p.RemoteAddress.Length > 0 ? p.RemoteAddress : null;
+
+    public void SendCallSignal(string phone, Packet p)
+    {
+        p.From = Me.Phone;
+        if (_peers.TryGetValue(phone, out var peer)) _ = peer.SendAsync(p);
     }
 
     public void Dispose()
