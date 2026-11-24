@@ -74,6 +74,19 @@ public partial class MainWindow : Window
         node.PeerPresence += (p, on) => Dispatcher.InvokeAsync(() => { RefreshChats(); UpdateHeader(); });
         node.ContactUpdated += c => Dispatcher.InvokeAsync(() => { RefreshChats(); UpdateHeader(); });
         Session.Calls.Changed += () => Dispatcher.InvokeAsync(CallChanged);
+        Session.Calls.FrameReceived += jpg =>
+        {
+            var img = DecodeJpeg(jpg);
+            Dispatcher.InvokeAsync(() => { if (img != null) CallRemoteVideo.Source = img; });
+        };
+        Session.Calls.LocalFrame += jpg =>
+        {
+            var img = DecodeJpeg(jpg);
+            Dispatcher.InvokeAsync(() => { if (img != null) CallLocalVideo.Source = img; });
+        };
+        Session.Calls.CameraError += () => Dispatcher.InvokeAsync(() =>
+            MessageBox.Show(this, "Caméra indisponible (occupée par une autre application ?). Vous recevez la vidéo sans envoyer la vôtre.",
+                            "Appel vidéo"));
         node.PeerPresence += (p, on) => { if (!on) Session.Calls.PeerLost(p); };
         _callTimer.Tick += (_, _) => UpdateCallStatus();
         _ringTimer.Tick += (_, _) => System.Media.SystemSounds.Exclamation.Play();
@@ -883,22 +896,30 @@ public partial class MainWindow : Window
         }
         _ringTimer.Stop();
         _callTimer.Stop();
+        var video = calls.Video;
 
         switch (calls.State)
         {
             case CallState.Calling:
-                ShowCall("Appel en cours…", accept: false, mute: false);
-                ResetMuteButton();
+                ResetCallUi();
+                ShowCall(video ? "Appel vidéo en cours…" : "Appel en cours…", accept: false, mute: false, cam: false);
                 _ringTimer.Start();
                 break;
             case CallState.Ringing:
-                ShowCall("Appel vocal entrant", accept: true, mute: false);
-                ResetMuteButton();
+                ResetCallUi();
+                ShowCall(video ? "Appel vidéo entrant" : "Appel vocal entrant", accept: true, mute: false, cam: false);
                 System.Media.SystemSounds.Exclamation.Play();
                 _ringTimer.Start();
                 break;
             case CallState.Active:
-                ShowCall("00:00", accept: false, mute: true);
+                ShowCall("00:00", accept: false, mute: true, cam: video);
+                if (video)
+                {
+                    CallAvatar.Visibility = Visibility.Collapsed;
+                    CallLocalBox.Visibility = Visibility.Visible;
+                    CallPanel.VerticalAlignment = VerticalAlignment.Bottom;
+                    CallPanel.Margin = new Thickness(0, 0, 0, 24);
+                }
                 UpdateCallStatus();
                 _callTimer.Start();
                 break;
@@ -907,20 +928,40 @@ public partial class MainWindow : Window
                 CallStatus.Text = calls.EndReason;
                 CallAcceptBtn.Visibility = Visibility.Collapsed;
                 CallMuteBtn.Visibility = Visibility.Collapsed;
+                CallCamBtn.Visibility = Visibility.Collapsed;
                 CallEndBtn.Visibility = Visibility.Collapsed;
                 await Task.Delay(1500);
-                if (Session.Calls.State == CallState.Idle) CallOverlay.Visibility = Visibility.Collapsed;
+                if (Session.Calls.State == CallState.Idle)
+                {
+                    CallOverlay.Visibility = Visibility.Collapsed;
+                    ResetCallUi();
+                }
                 break;
         }
     }
 
-    private void ShowCall(string status, bool accept, bool mute)
+    private void ShowCall(string status, bool accept, bool mute, bool cam)
     {
         CallOverlay.Visibility = Visibility.Visible;
         CallStatus.Text = status;
         CallAcceptBtn.Visibility = accept ? Visibility.Visible : Visibility.Collapsed;
         CallMuteBtn.Visibility = mute ? Visibility.Visible : Visibility.Collapsed;
+        CallCamBtn.Visibility = cam ? Visibility.Visible : Visibility.Collapsed;
         CallEndBtn.Visibility = Visibility.Visible;
+    }
+
+    // Remet l'écran d'appel à zéro (avatar visible, plus d'images vidéo)
+    private void ResetCallUi()
+    {
+        CallRemoteVideo.Source = null;
+        CallLocalVideo.Source = null;
+        CallLocalBox.Visibility = Visibility.Collapsed;
+        CallAvatar.Visibility = Visibility.Visible;
+        CallPanel.VerticalAlignment = VerticalAlignment.Center;
+        CallPanel.Margin = new Thickness(0);
+        ResetMuteButton();
+        CallCamBtn.Background = (Brush)new BrushConverter().ConvertFromString("#3B4143")!;
+        CallCamBtn.Foreground = Brushes.White;
     }
 
     private void UpdateCallStatus()
@@ -949,6 +990,39 @@ public partial class MainWindow : Window
         var muted = Session.Calls.Muted;
         CallMuteBtn.Background = muted ? Brushes.White : (Brush)new BrushConverter().ConvertFromString("#3B4143")!;
         CallMuteBtn.Foreground = muted ? Brushes.Black : Brushes.White;
+    }
+
+    private void VideoCall_Click(object sender, RoutedEventArgs e)
+    {
+        if (_current == null) return;
+        var error = Session.Calls.StartCall(_current, video: true);
+        if (error != null) MessageBox.Show(this, error, "Appel");
+    }
+
+    private void CallCam_Click(object sender, RoutedEventArgs e)
+    {
+        Session.Calls.ToggleCamera();
+        var off = !Session.Calls.CameraOn;
+        CallCamBtn.Background = off ? Brushes.White : (Brush)new BrushConverter().ConvertFromString("#3B4143")!;
+        CallCamBtn.Foreground = off ? Brushes.Black : Brushes.White;
+        CallLocalBox.Visibility = off ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    // Décode une image JPEG reçue (sur un thread de fond : l'image est gelée pour passer au thread de l'interface)
+    private static ImageSource? DecodeJpeg(byte[] data)
+    {
+        try
+        {
+            using var ms = new MemoryStream(data);
+            var bi = new BitmapImage();
+            bi.BeginInit();
+            bi.CacheOption = BitmapCacheOption.OnLoad;
+            bi.StreamSource = ms;
+            bi.EndInit();
+            bi.Freeze();
+            return bi;
+        }
+        catch { return null; }
     }
 
     private void SetMyTyping(bool typing)

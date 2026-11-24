@@ -27,4 +27,5 @@ public class Packet
     public string Color { get; set; } = "";   // fond d'un statut texte
     public int Port { get; set; }       // port UDP audio de l'appelant ou du destinataire
     public bool Video { get; set; }     // réservé à l'appel vidéo
+    public int VideoPort { get; set; }   // port UDP des images vidéo
 }
