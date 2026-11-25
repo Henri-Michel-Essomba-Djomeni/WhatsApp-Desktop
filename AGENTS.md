@@ -25,6 +25,6 @@ SDK .NET 11, Windows uniquement. Dépôt : github.com/Henri-Michel-Essomba-Djome
 - Fermer toutes les fenêtres avant de recompiler (fichier verrouillé).
 
 ## État
-Fait : messages, coches, écrit..., en ligne, emojis, images, fichiers, répondre/copier/supprimer, vocaux avec ondes, paramètres (nom, info, photo, thème), stickers.
-À faire : statuts 24 h, appels vocal puis vidéo, groupes, recherche dans une discussion, finitions de fidélité visuelle, README.
-Décision : l'envoi vers de vrais comptes WhatsApp est écarté (API officielle Business seulement, bibliothèques non officielles interdites), présenté comme évolution possible.
+Fait et testé : messages, coches, écrit..., en ligne, emojis, images, fichiers, répondre/copier/supprimer, vocaux avec ondes, paramètres (nom, info, photo, thème), stickers, statuts 24 h, appel vocal (UDP + NAudio), appel vidéo (webcam OpenCvSharp, JPEG en UDP).
+À faire : messages à vue unique, groupes, recherche dans une discussion, appels dans l'historique, finitions de fidélité visuelle (fond d'écran, emojis en couleur, animations, icônes), README.
+Notes : NAudio 3.3.0 (WaveIn/WaveOut, pas de BufferDuration modifiable), SDK .NET 11. Une webcam ne s'ouvre que dans une instance à la fois sur un même PC.
